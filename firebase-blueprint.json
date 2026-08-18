@@ -1,0 +1,159 @@
+{
+  "entities": {
+    "parkingSession": {
+      "title": "ParkingSession",
+      "description": "Registro de estadía de un vehículo en un puesto de estacionamiento",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador único de la sesión"
+        },
+        "spotNumber": {
+          "type": "number",
+          "description": "Número del puesto asignado (1 al 10)"
+        },
+        "plate": {
+          "type": "string",
+          "description": "Patente del vehículo chilena"
+        },
+        "model": {
+          "type": "string",
+          "description": "Marca y modelo del vehículo"
+        },
+        "color": {
+          "type": "string",
+          "description": "Color del vehículo"
+        },
+        "driverName": {
+          "type": "string",
+          "description": "Nombre del conductor o cliente"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Teléfono de contacto"
+        },
+        "entryTime": {
+          "type": "string",
+          "description": "Marca temporal ISO de ingreso"
+        },
+        "exitTime": {
+          "type": "string",
+          "description": "Marca temporal ISO de salida"
+        },
+        "status": {
+          "type": "string",
+          "description": "Estado de la sesión (active o completed)",
+          "enum": ["active", "completed"]
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Método de pago utilizado"
+        },
+        "totalPaid": {
+          "type": "number",
+          "description": "Monto total cancelado en CLP"
+        },
+        "hasValetParking": {
+          "type": "boolean",
+          "description": "Indica si se utilizó el servicio de Valet Parking"
+        },
+        "valetParkingFee": {
+          "type": "number",
+          "description": "Costo cobrado por el servicio de Valet Parking"
+        }
+      },
+      "required": ["id", "spotNumber", "plate", "entryTime", "status"]
+    },
+    "monthlyContract": {
+      "title": "MonthlyContract",
+      "description": "Contrato mensual de arriendo de estacionamiento",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador único del contrato"
+        },
+        "spotNumber": {
+          "type": "number",
+          "description": "Puesto reservado exclusivamente"
+        },
+        "clientName": {
+          "type": "string",
+          "description": "Nombre o Razón Social del cliente"
+        },
+        "clientRut": {
+          "type": "string",
+          "description": "RUT chileno del cliente o empresa"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Teléfono de contacto"
+        },
+        "plate": {
+          "type": "string",
+          "description": "Patente asignada al contrato"
+        },
+        "monthlyFee": {
+          "type": "number",
+          "description": "Canon mensual en CLP"
+        },
+        "startDate": {
+          "type": "string",
+          "description": "Fecha de inicio del contrato"
+        },
+        "endDate": {
+          "type": "string",
+          "description": "Fecha de término del contrato"
+        },
+        "status": {
+          "type": "string",
+          "description": "Estado del arriendo (active, expired, pending)",
+          "enum": ["active", "expired", "pending"]
+        }
+      },
+      "required": ["id", "spotNumber", "clientName", "plate", "monthlyFee", "startDate", "status"]
+    },
+    "businessSettings": {
+      "title": "BusinessSettings",
+      "description": "Parámetros globales de precios, impuestos y configuración del garage",
+      "type": "object",
+      "properties": {
+        "firstHalfHourCost": {
+          "type": "number",
+          "description": "Tarifa primeros 30 minutos ($ CLP)"
+        },
+        "extraTierCost": {
+          "type": "number",
+          "description": "Tarifa por cada tramo extra de 10 minutos ($ CLP)"
+        },
+        "valetParkingPrice": {
+          "type": "number",
+          "description": "Tarifa fija por servicio de Valet Parking ($ CLP)"
+        },
+        "valetParkingEnabled": {
+          "type": "boolean",
+          "description": "Habilitación del servicio de Valet Parking"
+        },
+        "ivaPercentage": {
+          "type": "number",
+          "description": "Porcentaje de IVA aplicable (19% en Chile)"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/parkingSessions/{sessionId}": {
+      "schema": "parkingSession",
+      "description": "Estadías activas e históricas de vehículos en el estacionamiento"
+    },
+    "/monthlyContracts/{contractId}": {
+      "schema": "monthlyContract",
+      "description": "Contratos mensuales de arriendo exclusivo de puestos"
+    },
+    "/businessSettings/{settingId}": {
+      "schema": "businessSettings",
+      "description": "Configuraciones globales operativas y fiscales de Bamo Garage SpA"
+    }
+  }
+}
