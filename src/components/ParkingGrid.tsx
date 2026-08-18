@@ -13,9 +13,14 @@ import {
   Plus,
   TrendingDown,
   Key,
+  Trash2,
+  Shield,
+  ShieldAlert,
+  X,
+  AlertTriangle,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
-import { calculateParkingFee, calculateVacancyLoss, formatCLP } from '../utils/pricing';
+import { calculateParkingFee, calculateVacancyLoss, formatCLP, formatTimeOnly } from '../utils/pricing';
 import { ParkingSpot } from '../types';
 
 interface ParkingGridProps {
@@ -37,10 +42,68 @@ export const ParkingGrid: React.FC<ParkingGridProps> = ({
   onOpenUniversalQR,
   onOpenCustomerPortal,
 }) => {
-  const { spots, currentTime, settings } = useParking();
+  const { spots, currentTime, settings, cancelActiveSpotSession, currentUser, users } = useParking();
+  const [spotToCancel, setSpotToCancel] = useState<number | null>(null);
+  const [adminPinInput, setAdminPinInput] = useState<string>('');
+  const [pinError, setPinError] = useState<string>('');
+  const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const selectedSpot = spotToCancel ? spots.find((s) => s.number === spotToCancel) : null;
+  const activeSession = selectedSpot?.currentSession;
+  const isAdmin = currentUser?.role === 'admin';
+
+  const handleConfirmCancellation = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!spotToCancel) return;
+
+    if (!isAdmin) {
+      if (!adminPinInput || adminPinInput.length !== 8) {
+        setPinError('Debes ingresar el PIN de 8 dígitos de Administrador.');
+        return;
+      }
+      const adminUser = users.find((u) => u.role === 'admin' && u.pin === adminPinInput);
+      if (!adminUser) {
+        setPinError('PIN de Administrador incorrecto. Acción denegada.');
+        return;
+      }
+    }
+
+    const result = cancelActiveSpotSession(spotToCancel, adminPinInput);
+    if (result.success) {
+      setFeedbackMessage({ type: 'success', text: result.message });
+      setSpotToCancel(null);
+      setAdminPinInput('');
+      setPinError('');
+      setTimeout(() => setFeedbackMessage(null), 5000);
+    } else {
+      setPinError(result.message);
+    }
+  };
 
   return (
     <div className="space-y-6">
+      {/* Success Notification Alert */}
+      {feedbackMessage && (
+        <div
+          className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs shadow-lg transition-all animate-fadeIn ${
+            feedbackMessage.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
+              : 'bg-rose-950/80 border-rose-500/50 text-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span className="font-semibold">{feedbackMessage.text}</span>
+          </div>
+          <button
+            onClick={() => setFeedbackMessage(null)}
+            className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800/60"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Overview Banner & Pricing Formula Bar */}
       <div className="bg-[#0E1017] border border-zinc-800/80 rounded-2xl p-5 text-white shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -136,9 +199,150 @@ export const ParkingGrid: React.FC<ParkingGridProps> = ({
             onOpenQR={onOpenQR}
             onAddWash={onAddWash}
             onAddAccessory={onAddAccessory}
+            onRequestCancelEntry={(spotNum) => {
+              setSpotToCancel(spotNum);
+              setAdminPinInput('');
+              setPinError('');
+            }}
           />
         ))}
       </div>
+
+      {/* Admin Cancel / Delete Entry Modal */}
+      {spotToCancel && selectedSpot && activeSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-[#11131C] border border-rose-900/60 rounded-2xl max-w-md w-full p-6 text-zinc-100 shadow-2xl space-y-5 animate-scaleUp">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-800/80 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-950/80 border border-rose-700/60 text-rose-400 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Anular Ingreso de Vehículo
+                  </h3>
+                  <span className="text-xs text-rose-300 font-medium">
+                    Puesto #{spotToCancel} • Privilegio de Administrador
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSpotToCancel(null)}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Vehicle Summary Box */}
+            <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">Patente:</span>
+                <span className="font-mono font-bold text-sm bg-zinc-900 px-2 py-0.5 rounded border border-zinc-700 text-white">
+                  {activeSession.plate}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-zinc-300">
+                <span className="text-zinc-400">Vehículo:</span>
+                <span className="font-medium">
+                  {activeSession.brand} {activeSession.model} ({activeSession.color})
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-zinc-300">
+                <span className="text-zinc-400">Hora Ingreso:</span>
+                <span className="font-mono text-zinc-200">
+                  {formatTimeOnly(activeSession.entryTime)}
+                </span>
+              </div>
+              {activeSession.clientName && (
+                <div className="flex items-center justify-between text-zinc-300">
+                  <span className="text-zinc-400">Cliente:</span>
+                  <span>{activeSession.clientName}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Reason explanation */}
+            <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-[11px] text-amber-200/90 flex gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <span className="font-semibold block text-amber-300">
+                  Motivo: Cliente se retira sin estacionarse
+                </span>
+                <p className="text-zinc-300 text-[11px] leading-relaxed">
+                  Esta acción anulará el registro y liberará el puesto <strong>#{spotToCancel}</strong> inmediatamente a estado <em>Disponible</em> sin generar costo, ticket de cobro ni ingreso en caja diaria.
+                </p>
+              </div>
+            </div>
+
+            {/* Admin Authentication Form */}
+            <form onSubmit={handleConfirmCancellation} className="space-y-4">
+              {isAdmin ? (
+                <div className="bg-emerald-950/40 border border-emerald-700/50 rounded-xl p-3 text-xs flex items-center gap-2.5 text-emerald-300">
+                  <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div>
+                    <span className="font-semibold block">Administrador Autenticado</span>
+                    <span className="text-[11px] text-zinc-300">
+                      Sesión activa de {currentUser.name}. Tienes autorización directa.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-rose-400" />
+                    Ingresa PIN de Administrador (8 dígitos):
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={8}
+                    pattern="[0-9]{8}"
+                    autoFocus
+                    placeholder="Ej: 12345678"
+                    value={adminPinInput}
+                    onChange={(e) => {
+                      setAdminPinInput(e.target.value.replace(/\D/g, ''));
+                      setPinError('');
+                    }}
+                    className="w-full bg-zinc-950 border border-zinc-700 focus:border-rose-500 rounded-xl px-4 py-2.5 text-sm font-mono tracking-widest text-center text-white outline-none"
+                    required
+                  />
+                  <span className="text-[10px] text-zinc-400 block">
+                    Por seguridad, solo un usuario con rol de Administrador puede autorizar la anulación de registros.
+                  </span>
+                </div>
+              )}
+
+              {pinError && (
+                <div className="p-2.5 rounded-lg bg-rose-950/80 border border-rose-700 text-rose-300 text-xs font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{pinError}</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSpotToCancel(null)}
+                  className="flex-1 py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-xl text-xs font-semibold border border-zinc-700 transition"
+                >
+                  Cancelar / Volver
+                </button>
+                <button
+                  id="btn-confirm-delete-entry"
+                  type="submit"
+                  className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/30 transition flex items-center justify-center gap-1.5 border border-rose-400/30"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Confirmar Anulación
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -153,6 +357,7 @@ interface SpotCardProps {
   onOpenQR: (spotNumber: number) => void;
   onAddWash: (spotNumber: number) => void;
   onAddAccessory: (spotNumber: number) => void;
+  onRequestCancelEntry: (spotNumber: number) => void;
 }
 
 const SpotCard: React.FC<SpotCardProps> = ({
@@ -165,8 +370,9 @@ const SpotCard: React.FC<SpotCardProps> = ({
   onOpenQR,
   onAddWash,
   onAddAccessory,
+  onRequestCancelEntry,
 }) => {
-  const { toggleSpotValetParking, settings } = useParking();
+  const { toggleSpotValetParking, settings, currentUser } = useParking();
   const isOccupied = spot.status === 'occupied' && spot.currentSession;
   const isReserved = spot.status === 'reserved_monthly' && spot.monthlyContract;
   const isAvailable = spot.status === 'available';
@@ -199,7 +405,7 @@ const SpotCard: React.FC<SpotCardProps> = ({
           : 'bg-[#0E1016] border-zinc-800 hover:border-indigo-500/50 hover:bg-[#11131A]'
       }`}
     >
-      {/* Card Header: Spot Number & Status */}
+      {/* Card Header: Spot Number, Delete Action & Status */}
       <div
         className={`px-4 py-2.5 border-b flex items-center justify-between ${
           isOccupied
@@ -215,25 +421,42 @@ const SpotCard: React.FC<SpotCardProps> = ({
           </span>
         </div>
 
-        {/* Status Pill */}
-        {isOccupied && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-950 text-rose-300 border border-rose-700/60">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping"></span>
-            Ocupado
-          </span>
-        )}
-        {isReserved && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-950 text-purple-300 border border-purple-700/60">
-            <Calendar className="w-3 h-3 text-purple-300" />
-            Arriendo
-          </span>
-        )}
-        {isAvailable && (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            Disponible
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {/* Admin Delete / Cancel Entry Button */}
+          {isOccupied && (
+            <button
+              id={`btn-cancel-entry-${spot.number}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRequestCancelEntry(spot.number);
+              }}
+              className="p-1 rounded-md bg-rose-950/70 hover:bg-rose-900/90 text-rose-300 hover:text-white border border-rose-700/60 transition-all hover:scale-105 shadow-sm"
+              title="Eliminar / Anular ingreso sin cobro (Cliente se fue sin estacionar - Privilegio Admin)"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Status Pill */}
+          {isOccupied && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-950 text-rose-300 border border-rose-700/60">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping"></span>
+              Ocupado
+            </span>
+          )}
+          {isReserved && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-950 text-purple-300 border border-purple-700/60">
+              <Calendar className="w-3 h-3 text-purple-300" />
+              Arriendo
+            </span>
+          )}
+          {isAvailable && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              Disponible
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Card Body */}
@@ -542,3 +765,4 @@ const SpotCard: React.FC<SpotCardProps> = ({
     </div>
   );
 };
+

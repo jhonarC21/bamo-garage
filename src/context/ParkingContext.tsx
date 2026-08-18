@@ -143,6 +143,7 @@ interface ParkingContextType {
     paymentMethod: PaymentMethod,
     posInfo?: { provider: POSTerminalProvider; authorizationCode: string }
   ) => ParkingSession | null;
+  cancelActiveSpotSession: (spotNumber: number, adminPinOrBypass?: string) => { success: boolean; message: string };
   toggleSpotValetParking: (
     spotNumber: number,
     options?: { enabled?: boolean; fee?: number; notes?: string; driver?: string }
@@ -792,6 +793,63 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return completedSession;
+  };
+
+  // Cancel / Delete Active Parking Entry (Admin privilege only)
+  const cancelActiveSpotSession = (
+    spotNumber: number,
+    adminPinOrBypass?: string
+  ): { success: boolean; message: string } => {
+    // Check admin authorization
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    const isPinValid =
+      adminPinOrBypass &&
+      users.some((u) => u.role === 'admin' && u.pin === adminPinOrBypass);
+
+    if (!isAdmin && !isPinValid) {
+      return {
+        success: false,
+        message: 'Acceso restringido: Solo el Administrador puede anular o eliminar registros de ingreso sin cobro.',
+      };
+    }
+
+    const spot = spots.find((s) => s.number === spotNumber);
+    if (!spot || spot.status !== 'occupied' || !spot.currentSession) {
+      return {
+        success: false,
+        message: `El puesto #${spotNumber} no tiene un vehículo ocupado actualmente.`,
+      };
+    }
+
+    const plate = spot.currentSession.plate;
+    const sessionId = spot.currentSession.id;
+
+    // Remove any active wash orders related to this canceled session
+    setWashOrders((prev) => prev.filter((order) => order.sessionId !== sessionId));
+
+    // Free the spot (if it has an active monthly contract, return to 'reserved_monthly', otherwise 'available')
+    setSpots((prev) =>
+      prev.map((s) => {
+        if (s.number === spotNumber) {
+          const hasContract = monthlyContracts.some(
+            (c) => c.spotNumber === spotNumber && c.status === 'active'
+          );
+          return {
+            ...s,
+            status: hasContract ? 'reserved_monthly' : 'available',
+            currentSessionId: undefined,
+            currentSession: undefined,
+            lastStatusChange: currentTime.toISOString(),
+          };
+        }
+        return s;
+      })
+    );
+
+    return {
+      success: true,
+      message: `Ingreso del vehículo patente ${plate} (Puesto #${spotNumber}) anulado exitosamente sin cobro.`,
+    };
   };
 
   // Add Standalone or Linked Wash Order
@@ -1495,6 +1553,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteAccessoryProduct,
         checkInVehicle,
         checkOutVehicle,
+        cancelActiveSpotSession,
         toggleSpotValetParking,
         addWashOrder,
         requestCustomerWashOrder,
