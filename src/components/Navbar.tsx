@@ -168,14 +168,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             id="btn-reset-demo"
             onClick={() => {
-              if (window.confirm('¿Deseas restablecer todos los datos iniciales de prueba?')) {
+              if (window.confirm('¿Deseas restablecer el sistema a cero (todos los puestos disponibles y registros limpios)?')) {
                 resetToInitialData();
               }
             }}
             className="text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded-lg hover:bg-zinc-850 border border-transparent hover:border-zinc-750 transition text-[11px]"
-            title="Reiniciar base de datos a valores por defecto"
+            title="Restablecer todos los puestos a disponibles y limpiar transacciones"
           >
-            Reiniciar Demo
+            Restablecer a Cero
           </button>
         </div>
       </div>
