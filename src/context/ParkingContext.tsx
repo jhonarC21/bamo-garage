@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import {
   ParkingSpot,
   Vehicle,
@@ -58,6 +60,11 @@ interface CheckInData {
   notes?: string;
 }
 
+// Helper to sanitize payload for Firestore (stripping any undefined properties)
+function sanitizeForFirestore<T>(data: T): T {
+  return JSON.parse(JSON.stringify(data));
+}
+
 interface ParkingContextType {
   spots: ParkingSpot[];
   vehicles: Vehicle[];
@@ -70,6 +77,11 @@ interface ParkingContextType {
   settings: ParkingSettings;
   simulatedMinutesAdded: number;
   currentTime: Date;
+
+  // Cloud Firestore Real-time Multi-Device Sync
+  isCloudSynced: boolean;
+  cloudSyncStatus: 'connected' | 'syncing' | 'offline' | 'error';
+  lastCloudSyncTime: Date | null;
 
   // Users & Access PIN 8 digits
   users: AppUser[];
@@ -281,6 +293,13 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Cloud Firestore Sync State
+  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(true);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('connected');
+  const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(null);
+  const isIncomingCloudUpdate = useRef<boolean>(false);
+  const isInitialCloudLoadComplete = useRef<boolean>(false);
+
   const [simulatedMinutesAdded, setSimulatedMinutesAdded] = useState<number>(0);
   const [baseCurrentTime, setBaseCurrentTime] = useState<Date>(new Date());
 
@@ -293,6 +312,153 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const currentTime = new Date(baseCurrentTime.getTime() + simulatedMinutesAdded * 60000);
+
+  // Real-time listener: Multi-device instant synchronization via Firebase Firestore
+  useEffect(() => {
+    try {
+      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+      const unsubscribe = onSnapshot(
+        liveDocRef,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data) {
+              isIncomingCloudUpdate.current = true;
+              if (Array.isArray(data.spots)) setSpots(data.spots);
+              if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
+              if (Array.isArray(data.washServices)) setWashServices(data.washServices);
+              if (Array.isArray(data.washOrders)) setWashOrders(data.washOrders);
+              if (Array.isArray(data.accessoryProducts)) setAccessoryProducts(data.accessoryProducts);
+              if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
+              if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
+              if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
+              if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+              if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
+              if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+              if (typeof data.openingCash === 'number') setOpeningCash(data.openingCash);
+              if (Array.isArray(data.cashRegisterClosures)) setCashRegisterClosures(data.cashRegisterClosures);
+              if (Array.isArray(data.employees)) setEmployees(data.employees);
+              if (Array.isArray(data.payrollSettlements)) setPayrollSettlements(data.payrollSettlements);
+
+              setIsCloudSynced(true);
+              setCloudSyncStatus('connected');
+              setLastCloudSyncTime(new Date());
+
+              setTimeout(() => {
+                isIncomingCloudUpdate.current = false;
+                isInitialCloudLoadComplete.current = true;
+              }, 300);
+            }
+          } else {
+            // First-time database bootstrapping in Firestore
+            setDoc(
+              liveDocRef,
+              sanitizeForFirestore({
+                spots: INITIAL_SPOTS,
+                vehicles: INITIAL_VEHICLES,
+                washServices: INITIAL_WASH_SERVICES,
+                washOrders: [],
+                accessoryProducts: INITIAL_ACCESSORIES,
+                accessorySales: [],
+                monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
+                completedSessions: INITIAL_COMPLETED_SESSIONS,
+                settings: DEFAULT_SETTINGS,
+                users: INITIAL_USERS,
+                expenses: INITIAL_EXPENSES,
+                openingCash: 50000,
+                cashRegisterClosures: [],
+                employees: INITIAL_EMPLOYEES,
+                payrollSettlements: [],
+                lastUpdatedAt: new Date().toISOString(),
+              })
+            )
+              .then(() => {
+                setIsCloudSynced(true);
+                setCloudSyncStatus('connected');
+                setLastCloudSyncTime(new Date());
+                isInitialCloudLoadComplete.current = true;
+              })
+              .catch((err) => {
+                console.warn('Could not initialize cloud document:', err);
+              });
+          }
+        },
+        (error) => {
+          console.warn('Firestore live sync error:', error);
+          setCloudSyncStatus('offline');
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (err) {
+      console.warn('Error setting up Firestore listener:', err);
+      setCloudSyncStatus('offline');
+    }
+  }, []);
+
+  // Push local changes to Firestore across all devices
+  useEffect(() => {
+    if (isIncomingCloudUpdate.current) return;
+    if (!isInitialCloudLoadComplete.current) return;
+
+    const timer = setTimeout(() => {
+      try {
+        setCloudSyncStatus('syncing');
+        const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+        setDoc(
+          liveDocRef,
+          sanitizeForFirestore({
+            spots,
+            vehicles,
+            washServices,
+            washOrders,
+            accessoryProducts,
+            accessorySales,
+            monthlyContracts,
+            completedSessions,
+            settings,
+            users,
+            expenses,
+            openingCash,
+            cashRegisterClosures,
+            employees,
+            payrollSettlements,
+            lastUpdatedAt: new Date().toISOString(),
+          }),
+          { merge: true }
+        )
+          .then(() => {
+            setIsCloudSynced(true);
+            setCloudSyncStatus('connected');
+            setLastCloudSyncTime(new Date());
+          })
+          .catch((err) => {
+            console.warn('Error updating Firestore in real-time:', err);
+            setCloudSyncStatus('error');
+          });
+      } catch (e) {
+        console.warn('Error syncing state to Firestore:', e);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [
+    spots,
+    vehicles,
+    washServices,
+    washOrders,
+    accessoryProducts,
+    accessorySales,
+    monthlyContracts,
+    completedSessions,
+    settings,
+    users,
+    expenses,
+    openingCash,
+    cashRegisterClosures,
+    employees,
+    payrollSettlements,
+  ]);
 
   // Persistence effects
   useEffect(() => {
@@ -1245,6 +1411,33 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setEmployees(INITIAL_EMPLOYEES);
     setPayrollSettlements([]);
     setSimulatedMinutesAdded(0);
+
+    try {
+      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+      setDoc(
+        liveDocRef,
+        sanitizeForFirestore({
+          spots: INITIAL_SPOTS,
+          vehicles: INITIAL_VEHICLES,
+          washServices: INITIAL_WASH_SERVICES,
+          washOrders: orders,
+          accessoryProducts: INITIAL_ACCESSORIES,
+          accessorySales: [],
+          monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
+          completedSessions: INITIAL_COMPLETED_SESSIONS,
+          settings: DEFAULT_SETTINGS,
+          users: INITIAL_USERS,
+          expenses: INITIAL_EXPENSES,
+          openingCash: 50000,
+          cashRegisterClosures: [],
+          employees: INITIAL_EMPLOYEES,
+          payrollSettlements: [],
+          lastUpdatedAt: new Date().toISOString(),
+        })
+      );
+    } catch (e) {
+      console.warn('Error resetting cloud document:', e);
+    }
   };
 
   return (
@@ -1261,6 +1454,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         settings,
         simulatedMinutesAdded,
         currentTime,
+        isCloudSynced,
+        cloudSyncStatus,
+        lastCloudSyncTime,
         users,
         currentUser,
         isAuthenticated,

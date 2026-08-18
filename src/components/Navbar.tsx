@@ -21,6 +21,9 @@ import {
   Lock,
   LogOut,
   Shield,
+  Cloud,
+  CloudOff,
+  RefreshCw,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatTimeOnly } from '../utils/pricing';
@@ -50,6 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     currentUser,
     lockSystem,
     settings,
+    cloudSyncStatus,
   } = useParking();
 
   const occupiedCount = spots.filter((s) => s.status === 'occupied').length;
@@ -79,6 +83,41 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="font-semibold tracking-wide uppercase text-[11px]">Sistema Activo</span>
             <span className="text-zinc-600">|</span>
             <span className="text-zinc-300">10 Puestos</span>
+          </div>
+
+          {/* Cloud Sync Status Badge */}
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition ${
+              cloudSyncStatus === 'connected'
+                ? 'bg-emerald-950/50 text-emerald-300 border-emerald-500/40 shadow-sm'
+                : cloudSyncStatus === 'syncing'
+                ? 'bg-cyan-950/50 text-cyan-300 border-cyan-500/40 animate-pulse'
+                : 'bg-amber-950/50 text-amber-300 border-amber-500/40'
+            }`}
+            title={
+              cloudSyncStatus === 'connected'
+                ? 'Sincronizado en tiempo real con Firebase Firestore (Multi-dispositivo en vivo)'
+                : cloudSyncStatus === 'syncing'
+                ? 'Sincronizando cambios con la nube...'
+                : 'Modo local (Reconectando nube...)'
+            }
+          >
+            {cloudSyncStatus === 'connected' ? (
+              <>
+                <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">En Línea (Nube)</span>
+              </>
+            ) : cloudSyncStatus === 'syncing' ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                <span className="hidden sm:inline">Sincronizando</span>
+              </>
+            ) : (
+              <>
+                <CloudOff className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Modo Local</span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 bg-zinc-900/90 px-2.5 py-1 rounded-lg border border-zinc-800 text-zinc-300">

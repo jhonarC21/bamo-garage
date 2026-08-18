@@ -160,10 +160,6 @@ export const INITIAL_ACTIVE_SESSIONS: ParkingSession[] = [];
 export const INITIAL_SPOTS: ParkingSpot[] = Array.from({ length: 10 }, (_, i) => ({
   number: i + 1,
   status: 'available' as const,
-  currentSessionId: undefined,
-  currentSession: undefined,
-  monthlyContractId: undefined,
-  monthlyContract: undefined,
   lastStatusChange: new Date().toISOString(),
   accumulatedEmptyMinutesToday: 0,
 }));

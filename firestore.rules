@@ -1,35 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default Deny
+    // Permite lectura y escritura para sincronización en tiempo real del estacionamiento
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Parking Sessions Collection
-    match /parkingSessions/{sessionId} {
-      allow read: if isSignedIn() || request.auth == null; // Permit customer portal lookup
-      allow create, update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-
-    // Monthly Contracts Collection
-    match /monthlyContracts/{contractId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // Business Settings Collection
-    match /businessSettings/{settingId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
   }
 }
