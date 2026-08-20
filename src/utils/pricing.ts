@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: ParkingSettings = {
   extraTierCost: 300,
   valetParkingPrice: 2000,
   valetParkingEnabled: true,
+  weeklyContractPrice: 15000,
   dayContractPrice: 45000,
   nightContractPrice: 35000,
   fullContractPrice: 70000,

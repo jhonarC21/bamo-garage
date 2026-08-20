@@ -12,6 +12,10 @@ import {
   CheckCircle2,
   AlertCircle,
   CreditCard,
+  MessageCircle,
+  Trash2,
+  Send,
+  ExternalLink,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime } from '../utils/pricing';
@@ -24,11 +28,40 @@ export const MonthlyContracts: React.FC = () => {
     getVehicleByPlate,
     createMonthlyContract,
     updateMonthlyContract,
+    deleteMonthlyContract,
+    currentUser,
     settings,
   } = useParking();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterType, setFilterType] = useState<string>('all');
+
+  const sendWhatsAppReminder = (contract: MonthlyContract) => {
+    if (!contract.clientPhone) {
+      alert('Este contrato no tiene registrado un número de teléfono para WhatsApp.');
+      return;
+    }
+    const cleanPhone = contract.clientPhone.replace(/[^0-9]/g, '');
+    const phoneToUse = cleanPhone.startsWith('56') ? cleanPhone : `56${cleanPhone}`;
+    const message = `Estimado(a) *${contract.clientName}*, le recordamos cordialmente desde *${settings.parkingName || 'BAMO GARAGE SPA'}* que su arriendo de estacionamiento para el vehículo *${contract.plate}* (Puesto #${contract.spotNumber || 'Flexible'}) tiene fecha de vencimiento el *${contract.endDate}*.\n\n` +
+      `*Monto Mensual:* ${formatCLP(contract.monthlyFee)}\n` +
+      `*Tipo de Plan:* ${contract.type.replace('_', ' ').toUpperCase()}\n\n` +
+      `Agradecemos coordinar la renovación del servicio en nuestra caseta central o vía transferencia. ¡Muchas gracias por su preferencia!`;
+
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneToUse}&text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
+  const handleDeleteContract = (contract: MonthlyContract) => {
+    if (window.confirm(`¿Seguro que deseas ELIMINAR el contrato de arriendo N° ${contract.contractNumber} (${contract.clientName} - Patente ${contract.plate})? El puesto asociado quedará libre de inmediato.`)) {
+      const res = deleteMonthlyContract(contract.id);
+      if (res.success) {
+        alert('Contrato de arriendo eliminado correctamente.');
+      } else {
+        alert(res.message);
+      }
+    }
+  };
 
   // Form state
   const [contractType, setContractType] = useState<ContractType>('diurno');
@@ -278,65 +311,92 @@ export const MonthlyContracts: React.FC = () => {
                 <th className="p-3 font-semibold">Vigencia</th>
                 <th className="p-3 text-right font-semibold">Mensualidad</th>
                 <th className="p-3 text-center font-semibold">Estado</th>
+                <th className="p-3 text-center font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {filteredContracts.map((contract) => (
-                <tr key={contract.id} className="hover:bg-zinc-850/50 transition">
-                  <td className="p-3 font-mono font-bold text-indigo-400">
-                    {contract.contractNumber}
-                  </td>
-                  <td className="p-3">
-                    {contract.spotNumber ? (
-                      <span className="bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded text-white font-bold font-mono">
-                        Puesto #{contract.spotNumber}
+              {filteredContracts.map((contract) => {
+                const isEndingSoon = new Date(contract.endDate).getTime() - new Date().getTime() <= 5 * 24 * 60 * 60 * 1000;
+
+                return (
+                  <tr key={contract.id} className="hover:bg-zinc-850/50 transition">
+                    <td className="p-3 font-mono font-bold text-indigo-400">
+                      {contract.contractNumber}
+                    </td>
+                    <td className="p-3">
+                      {contract.spotNumber ? (
+                        <span className="bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded text-white font-bold font-mono">
+                          Puesto #{contract.spotNumber}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-500">Flexible</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          contract.type === 'diurno'
+                            ? 'bg-amber-950/80 text-amber-300 border border-amber-800'
+                            : contract.type === 'nocturno'
+                            ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800'
+                            : 'bg-purple-950/80 text-purple-300 border border-purple-800'
+                        }`}
+                      >
+                        {contract.type === 'diurno' && <Sun className="w-3 h-3" />}
+                        {contract.type === 'nocturno' && <Moon className="w-3 h-3" />}
+                        {contract.type === 'completo_24_7' && <Clock className="w-3 h-3" />}
+                        {contract.type.replace('_', ' ')}
                       </span>
-                    ) : (
-                      <span className="text-zinc-500">Flexible</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                        contract.type === 'diurno'
-                          ? 'bg-amber-950/80 text-amber-300 border border-amber-800'
-                          : contract.type === 'nocturno'
-                          ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800'
-                          : 'bg-purple-950/80 text-purple-300 border border-purple-800'
-                      }`}
-                    >
-                      {contract.type === 'diurno' && <Sun className="w-3 h-3" />}
-                      {contract.type === 'nocturno' && <Moon className="w-3 h-3" />}
-                      {contract.type === 'completo_24_7' && <Clock className="w-3 h-3" />}
-                      {contract.type.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <div className="font-mono font-bold text-white">{contract.plate}</div>
-                    <div className="text-[11px] text-zinc-400">
-                      {contract.brand} {contract.model} ({contract.color})
-                    </div>
-                  </td>
-                  <td className="p-3">
-                    <div className="font-semibold text-zinc-200">{contract.clientName}</div>
-                    <div className="text-[10px] text-zinc-400">
-                      RUT: {contract.clientRut} • {contract.clientPhone}
-                    </div>
-                  </td>
-                  <td className="p-3 text-zinc-300 text-[11px] font-mono">
-                    <div>Desde: {contract.startDate}</div>
-                    <div>Hasta: {contract.endDate}</div>
-                  </td>
-                  <td className="p-3 text-right font-mono font-bold text-emerald-400">
-                    {formatCLP(contract.monthlyFee)}
-                  </td>
-                  <td className="p-3 text-center">
-                    <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                      Activo
-                    </span>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="p-3">
+                      <div className="font-mono font-bold text-white">{contract.plate}</div>
+                      <div className="text-[11px] text-zinc-400">
+                        {contract.brand} {contract.model} ({contract.color})
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="font-semibold text-zinc-200">{contract.clientName}</div>
+                      <div className="text-[10px] text-zinc-400">
+                        RUT: {contract.clientRut} • {contract.clientPhone}
+                      </div>
+                    </td>
+                    <td className="p-3 text-zinc-300 text-[11px] font-mono">
+                      <div>Desde: {contract.startDate}</div>
+                      <div className={isEndingSoon ? 'text-amber-400 font-bold' : ''}>
+                        Hasta: {contract.endDate} {isEndingSoon && '⚠️'}
+                      </div>
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-emerald-400">
+                      {formatCLP(contract.monthlyFee)}
+                    </td>
+                    <td className="p-3 text-center">
+                      <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                        Activo
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => sendWhatsAppReminder(contract)}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-emerald-700/80 hover:bg-emerald-600 text-white rounded-lg font-bold text-[10px] transition shadow border border-emerald-500/40"
+                          title="Enviar aviso de vencimiento por WhatsApp"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>WhatsApp</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteContract(contract)}
+                          className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition border border-transparent hover:border-rose-800/50"
+                          title="Eliminar arriendo mensual"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

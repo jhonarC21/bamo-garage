@@ -13,13 +13,14 @@ import { PayrollManagement } from './components/PayrollManagement';
 import { SettingsAndUsers } from './components/SettingsAndUsers';
 import { CheckInModal } from './components/CheckInModal';
 import { CheckOutModal } from './components/CheckOutModal';
+import { EditSessionModal } from './components/EditSessionModal';
 import { CustomerQRModal } from './components/CustomerQRModal';
 import { UniversalQRModal } from './components/UniversalQRModal';
 import { LiveCustomerPortal } from './components/LiveCustomerPortal';
 import { AuthLoginScreen } from './components/AuthLoginScreen';
 
 function ParkingAppContent() {
-  const { isAuthenticated } = useParking();
+  const { isAuthenticated, spots } = useParking();
   const [activeTab, setActiveTab] = useState<string>('parking');
 
   // Modal States
@@ -28,6 +29,9 @@ function ParkingAppContent() {
 
   const [isCheckOutOpen, setIsCheckOutOpen] = useState(false);
   const [checkOutSpotNumber, setCheckOutSpotNumber] = useState<number | null>(null);
+
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editSpotNumber, setEditSpotNumber] = useState<number | null>(null);
 
   const [isQROpen, setIsQROpen] = useState(false);
   const [qrSpotNumber, setQrSpotNumber] = useState<number | null>(null);
@@ -71,6 +75,11 @@ function ParkingAppContent() {
   const handleSpotOpenQR = (spotNumber: number) => {
     setQrSpotNumber(spotNumber);
     setIsQROpen(true);
+  };
+
+  const handleSpotEdit = (spotNumber: number) => {
+    setEditSpotNumber(spotNumber);
+    setIsEditOpen(true);
   };
 
   const handleSpotAddWash = (spotNumber: number) => {
@@ -128,6 +137,7 @@ function ParkingAppContent() {
             onCheckIn={handleSpotCheckIn}
             onCheckOut={handleSpotCheckOut}
             onOpenQR={handleSpotOpenQR}
+            onEditSpot={handleSpotEdit}
             onAddWash={handleSpotAddWash}
             onAddAccessory={handleSpotAddAccessory}
             onOpenUniversalQR={() => setIsUniversalQROpen(true)}
@@ -191,6 +201,15 @@ function ParkingAppContent() {
         isOpen={isCheckOutOpen}
         onClose={() => setIsCheckOutOpen(false)}
         spotNumber={checkOutSpotNumber}
+      />
+
+      <EditSessionModal
+        isOpen={isEditOpen}
+        onClose={() => {
+          setIsEditOpen(false);
+          setEditSpotNumber(null);
+        }}
+        spot={editSpotNumber ? (spots.find((s) => s.number === editSpotNumber) || null) : null}
       />
 
       <CustomerQRModal

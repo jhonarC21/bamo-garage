@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   X,
   AlertTriangle,
+  Edit3,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, calculateVacancyLoss, formatCLP, formatTimeOnly } from '../utils/pricing';
@@ -27,6 +28,7 @@ interface ParkingGridProps {
   onCheckIn: (spotNumber: number) => void;
   onCheckOut: (spotNumber: number) => void;
   onOpenQR: (spotNumber: number) => void;
+  onEditSpot?: (spotNumber: number) => void;
   onAddWash: (spotNumber: number) => void;
   onAddAccessory: (spotNumber: number) => void;
   onOpenUniversalQR?: () => void;
@@ -37,6 +39,7 @@ export const ParkingGrid: React.FC<ParkingGridProps> = ({
   onCheckIn,
   onCheckOut,
   onOpenQR,
+  onEditSpot,
   onAddWash,
   onAddAccessory,
   onOpenUniversalQR,
@@ -118,7 +121,7 @@ export const ParkingGrid: React.FC<ParkingGridProps> = ({
               Plano de Estacionamiento & Estado en Tiempo Real
             </h2>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Haz clic en cualquier puesto para registrar entrada, consultar QR del cliente o procesar cobro y salida.
+              Haz clic en cualquier puesto para registrar entrada, consultar QR del cliente, editar datos o procesar cobro y salida.
             </p>
           </div>
 
@@ -131,11 +134,11 @@ export const ParkingGrid: React.FC<ParkingGridProps> = ({
             <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-300">
               <div className="bg-zinc-950/80 p-1.5 rounded border border-zinc-800">
                 <span className="text-zinc-400 block text-[10px]">1er Tramo Fijo</span>
-                <span className="font-bold text-emerald-400 font-mono">0 - 30 min = $900</span>
+                <span className="font-bold text-emerald-400 font-mono">0 - 30 min = ${settings.base30MinPrice}</span>
               </div>
               <div className="bg-zinc-950/80 p-1.5 rounded border border-zinc-800">
                 <span className="text-zinc-400 block text-[10px]">Tramos Siguientes</span>
-                <span className="font-bold text-cyan-400 font-mono">+10 min = $300 c/u</span>
+                <span className="font-bold text-cyan-400 font-mono">+10 min = ${settings.extra10MinPrice} c/u</span>
               </div>
             </div>
           </div>
@@ -197,6 +200,7 @@ export const ParkingGrid: React.FC<ParkingGridProps> = ({
             onCheckIn={onCheckIn}
             onCheckOut={onCheckOut}
             onOpenQR={onOpenQR}
+            onEditSpot={onEditSpot}
             onAddWash={onAddWash}
             onAddAccessory={onAddAccessory}
             onRequestCancelEntry={(spotNum) => {
@@ -284,7 +288,7 @@ export const ParkingGrid: React.FC<ParkingGridProps> = ({
                   <div>
                     <span className="font-semibold block">Administrador Autenticado</span>
                     <span className="text-[11px] text-zinc-300">
-                      Sesión activa de {currentUser.name}. Tienes autorización directa.
+                      Sesión activa de {currentUser?.name}. Tienes autorización directa.
                     </span>
                   </div>
                 </div>
@@ -355,6 +359,7 @@ interface SpotCardProps {
   onCheckIn: (spotNumber: number) => void;
   onCheckOut: (spotNumber: number) => void;
   onOpenQR: (spotNumber: number) => void;
+  onEditSpot?: (spotNumber: number) => void;
   onAddWash: (spotNumber: number) => void;
   onAddAccessory: (spotNumber: number) => void;
   onRequestCancelEntry: (spotNumber: number) => void;
@@ -368,6 +373,7 @@ const SpotCard: React.FC<SpotCardProps> = ({
   onCheckIn,
   onCheckOut,
   onOpenQR,
+  onEditSpot,
   onAddWash,
   onAddAccessory,
   onRequestCancelEntry,
@@ -673,21 +679,33 @@ const SpotCard: React.FC<SpotCardProps> = ({
         <div className="pt-2 border-t border-zinc-800 space-y-1.5">
           {isOccupied && (
             <>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-3 gap-1">
                 <button
                   id={`btn-qr-${spot.number}`}
                   onClick={() => onOpenQR(spot.number)}
-                  className="flex items-center justify-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-cyan-300 hover:text-cyan-200 border border-zinc-800 py-1.5 rounded-lg text-[11px] font-medium transition"
+                  className="flex items-center justify-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-cyan-300 hover:text-cyan-200 border border-zinc-800 py-1.5 rounded-lg text-[10px] font-medium transition"
                   title="Ver código QR para el cliente y pantalla en vivo"
                 >
                   <QrCode className="w-3.5 h-3.5 text-cyan-400" />
-                  Ver QR
+                  QR
                 </button>
+
+                {onEditSpot && (
+                  <button
+                    id={`btn-edit-spot-${spot.number}`}
+                    onClick={() => onEditSpot(spot.number)}
+                    className="flex items-center justify-center gap-1 bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 hover:text-amber-200 border border-amber-800/60 py-1.5 rounded-lg text-[10px] font-medium transition"
+                    title="Editar datos de ingreso, patente o cambiar puesto"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                    Editar
+                  </button>
+                )}
 
                 <button
                   id={`btn-checkout-${spot.number}`}
                   onClick={() => onCheckOut(spot.number)}
-                  className="flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-500 text-white py-1.5 rounded-lg text-[11px] font-semibold shadow transition active:scale-95 border border-rose-400/30"
+                  className="flex items-center justify-center gap-1 bg-rose-600 hover:bg-rose-500 text-white py-1.5 rounded-lg text-[10px] font-semibold shadow transition active:scale-95 border border-rose-400/30"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   Cobrar
@@ -713,7 +731,7 @@ const SpotCard: React.FC<SpotCardProps> = ({
                   title="Añadir accesorio comprado a la cuenta"
                 >
                   <ShoppingBag className="w-3 h-3 text-amber-400" />
-                  + Accesorio
+                  + Acceso.
                 </button>
 
                 <button

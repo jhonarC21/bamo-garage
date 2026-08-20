@@ -36,6 +36,9 @@ export const DailyCashRegister: React.FC = () => {
     openingCash,
     setOpeningCash,
     cashRegisterClosures,
+    currentCashShift,
+    isCashRegisterOpen,
+    openDailyCashRegister,
     closeCashRegister,
     currentTime,
     currentUser,
@@ -43,6 +46,12 @@ export const DailyCashRegister: React.FC = () => {
 
   // Active view tab inside Cash Register
   const [activeSubTab, setActiveSubTab] = useState<'movements' | 'expenses' | 'closure' | 'history'>('movements');
+
+  // Open Cash Register modal
+  const [isOpenCashModalOpen, setIsOpenCashModalOpen] = useState(false);
+  const [initialOpenAmount, setInitialOpenAmount] = useState<string>(String(openingCash || 50000));
+  const [openNotes, setOpenNotes] = useState('');
+  const [openSuccessMsg, setOpenSuccessMsg] = useState<string | null>(null);
 
   // Expense form modal
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -60,6 +69,16 @@ export const DailyCashRegister: React.FC = () => {
   const [countedCash, setCountedCash] = useState<string>('');
   const [closureNotes, setClosureNotes] = useState('');
   const [closureSuccessMessage, setClosureSuccessMessage] = useState<string | null>(null);
+
+  const handleOpenCashRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(initialOpenAmount);
+    if (isNaN(amt) || amt < 0) return;
+    openDailyCashRegister(amt, openNotes.trim() || undefined);
+    setOpenSuccessMsg(`¡Caja abierta exitosamente con base inicial de ${formatCLP(amt)}!`);
+    setIsOpenCashModalOpen(false);
+    setTimeout(() => setOpenSuccessMsg(null), 4000);
+  };
 
   // Filters for expenses list
   const [expenseSearch, setExpenseSearch] = useState('');
@@ -98,6 +117,7 @@ export const DailyCashRegister: React.FC = () => {
     tarjeta_debito: 0,
     tarjeta_credito: 0,
     transferencia: 0,
+    cuenta_corriente_vip: 0,
   };
 
   todayParkingSessions.forEach((s) => {
@@ -235,25 +255,63 @@ export const DailyCashRegister: React.FC = () => {
               Flujo de Caja en Tiempo Real
             </span>
             <span className="text-xs text-zinc-400">Fecha Operativa: {todayStr}</span>
+            {isCashRegisterOpen ? (
+              <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-600/60 text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                CAJA ABIERTA
+              </span>
+            ) : (
+              <span className="bg-rose-950/80 text-rose-300 border border-rose-600/60 text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <Lock className="w-3 h-3 text-rose-400" />
+                CAJA CERRADA
+              </span>
+            )}
           </div>
           <h2 className="text-xl font-bold text-zinc-100 mt-1 tracking-tight">
             Caja Diaria & Registro de Gastos de la Empresa
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Control de ingresos por servicios, egresos de caja chica, pagos bancarios y cuadratura de caja diaria.
+            {currentCashShift
+              ? `Turno abierto por ${currentCashShift.openedBy} a las ${formatTimeOnly(currentCashShift.openedAt)} con base de ${formatCLP(currentCashShift.initialOpeningCash)}`
+              : 'Control de ingresos por servicios, egresos de caja chica, pagos bancarios y cuadratura diaria.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {!isCashRegisterOpen ? (
+            <button
+              onClick={() => setIsOpenCashModalOpen(true)}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-emerald-600/30 transition active:scale-95 border border-emerald-400/30"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Abrir Caja del Día
+            </button>
+          ) : (
+            <button
+              onClick={() => setActiveSubTab('closure')}
+              className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-amber-600/30 transition active:scale-95 border border-amber-400/30"
+            >
+              <Lock className="w-4 h-4" />
+              Cuadratura / Cierre de Caja
+            </button>
+          )}
+
           <button
             onClick={() => setIsExpenseModalOpen(true)}
-            className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-rose-600/30 transition active:scale-95 border border-rose-400/30"
+            className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-rose-600/30 transition active:scale-95 border border-rose-400/30"
           >
             <Plus className="w-4 h-4" />
-            Anexar Nuevo Gasto
+            Anexar Gasto
           </button>
         </div>
       </div>
+
+      {openSuccessMsg && (
+        <div className="p-3 bg-emerald-950/80 border border-emerald-600/60 rounded-xl text-emerald-200 text-xs flex items-center gap-2 shadow-lg animate-fadeIn">
+          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{openSuccessMsg}</span>
+        </div>
+      )}
 
       {/* Main KPI Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1026,6 +1084,86 @@ export const DailyCashRegister: React.FC = () => {
                   className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition shadow-lg shadow-rose-600/30"
                 >
                   Guardar Gasto
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Open Cash Register Shift */}
+      {isOpenCashModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-emerald-400" />
+                Apertura de Caja Diaria
+              </h3>
+              <button
+                onClick={() => setIsOpenCashModalOpen(false)}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleOpenCashRegister} className="space-y-4 text-xs">
+              <p className="text-zinc-400">
+                Inicia la jornada de caja registrando el fondo o monto base inicial disponible en gaveta.
+              </p>
+
+              <div>
+                <label className="block text-zinc-300 font-semibold mb-1">
+                  Monto Base Inicial de Apertura ($ CLP) *
+                </label>
+                <div className="relative">
+                  <DollarSign className="w-4 h-4 absolute left-3 top-3 text-emerald-400" />
+                  <input
+                    type="number"
+                    required
+                    placeholder="50000"
+                    value={initialOpenAmount}
+                    onChange={(e) => setInitialOpenAmount(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-4 py-2.5 text-sm font-mono font-bold text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-zinc-300 font-semibold mb-1">Responsable de Apertura</label>
+                <input
+                  type="text"
+                  disabled
+                  value={`${currentUser.name} (${currentUser.role.toUpperCase()})`}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-zinc-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-300 font-semibold mb-1">Observaciones / Notas (Opcional)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ej: Turno mañana iniciado con $50.000 en billetes y monedas..."
+                  value={openNotes}
+                  onChange={(e) => setOpenNotes(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setIsOpenCashModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition shadow-lg shadow-emerald-600/30"
+                >
+                  Confirmar Apertura
                 </button>
               </div>
             </form>

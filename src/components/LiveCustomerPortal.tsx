@@ -348,36 +348,31 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
               </form>
             </div>
 
-            {/* Quick Demo Vehicles selector (so users can test instantly) */}
-            {activeOccupiedSpots.length > 0 && (
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between text-xs text-zinc-400">
-                  <span className="font-semibold text-zinc-300">
-                    Vehículos estacionados actualmente ({activeOccupiedSpots.length}):
-                  </span>
-                  <span className="text-[10px] text-zinc-500">Toca para probar rápido</span>
+            {/* Available Spots Indicator (Private Totem - Only shows availability, never other parked cars) */}
+            <div className="bg-gradient-to-r from-emerald-950/40 via-zinc-900 to-zinc-950 border border-emerald-500/30 rounded-2xl p-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="font-bold text-xs text-zinc-200">Disponibilidad en Tiempo Real</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {activeOccupiedSpots.map((spot) => (
-                    <button
-                      key={spot.number}
-                      onClick={() => handleSelectQuickPlate(spot.currentSession!.plate)}
-                      className="p-2.5 bg-zinc-900/90 hover:bg-zinc-800/90 border border-zinc-800 hover:border-indigo-500/50 rounded-xl text-left transition flex items-center justify-between group"
-                    >
-                      <div>
-                        <span className="font-mono font-black text-xs text-zinc-100 block group-hover:text-indigo-300 transition">
-                          {spot.currentSession!.plate}
-                        </span>
-                        <span className="text-[10px] text-zinc-400">
-                          {spot.currentSession!.brand} • Puesto #{spot.number}
-                        </span>
-                      </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-indigo-400 transition" />
-                    </button>
-                  ))}
-                </div>
+                <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-full border border-emerald-600/40">
+                  {spots.filter((s) => s.status === 'available').length} / {spots.length} Libres
+                </span>
               </div>
-            )}
+
+              <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${(spots.filter((s) => s.status === 'available').length / spots.length) * 100}%`,
+                  }}
+                ></div>
+              </div>
+
+              <p className="text-[11px] text-zinc-400">
+                Por privacidad y seguridad, el tótem no expone datos de otros vehículos. Digita tu patente en el buscador superior para ver tu tiempo transcurrido.
+              </p>
+            </div>
 
             {/* Pricing info footer */}
             <div className="bg-[#12141D] border border-zinc-800/80 rounded-2xl p-4 text-xs space-y-2">
@@ -619,94 +614,79 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
               </div>
             </div>
 
-            {/* Real-time Bill Breakdown */}
+            {/* Stay Details & Instructions (Without showing accumulated money amounts as requested) */}
             <div className="bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
                 <div>
                   <span className="font-extrabold text-sm text-zinc-200 block">
-                    Cobro Acumulado al Momento:
+                    Estado de la Estadía:
                   </span>
-                  <span className="text-[10px] text-zinc-400 font-mono">
-                    {pricing.extraTiersCount === 0
-                      ? 'Tarifa base de 30 minutos'
-                      : `Base 30m + ${pricing.extraTiersCount} tramo(s) extra`}
+                  <span className="text-[10px] text-zinc-400">
+                    Control de tiempo en tiempo real
                   </span>
                 </div>
-                <span className="font-mono font-black text-2xl text-emerald-400">
-                  {formatCLP(grandTotal)}
+                <span className="font-mono font-bold text-xs bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 px-3 py-1 rounded-full flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" />
+                  {pricing.formattedDuration}
                 </span>
               </div>
 
-              {/* Line items */}
-              <div className="space-y-1.5 text-[11px] text-zinc-300">
-                {/* 1. Base tier */}
-                <div className="flex justify-between">
-                  <span>Primer Tramo (0 a 30 min):</span>
-                  <span className="font-medium text-zinc-100 font-mono">
-                    {formatCLP(settings.base30MinPrice)}
-                  </span>
+              {/* Status information items */}
+              <div className="space-y-2 text-[11px] text-zinc-300">
+                <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                  <span className="text-zinc-400">Patente consultada:</span>
+                  <span className="font-mono font-bold text-zinc-100">{session.plate}</span>
                 </div>
 
-                {/* 2. Extra 10-min tiers */}
-                {pricing.extraTiersCount > 0 ? (
-                  <div className="flex justify-between text-cyan-300 font-mono">
-                    <span>{pricing.extraTiersCount} tramos extras (10 min c/u):</span>
-                    <span className="font-semibold">+{formatCLP(pricing.extraTierCost)}</span>
-                  </div>
-                ) : (
-                  <div className="text-[10px] text-emerald-400 font-medium">
-                    ✓ Dentro de la tarifa base inicial de 30 minutos
-                  </div>
-                )}
+                <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                  <span className="text-zinc-400">Hora de Entrada:</span>
+                  <span className="font-mono text-zinc-200">{formatDateTime(session.entryTime)}</span>
+                </div>
 
-                {/* 3. Wash services */}
-                {session.washOrders?.map((w, idx) => (
-                  <div
-                    key={idx}
-                    className="flex justify-between text-purple-300 border-t border-zinc-800 pt-1.5 font-mono"
-                  >
-                    <span className="font-sans flex items-center gap-1">
+                <div className="flex justify-between items-center py-1 border-b border-zinc-800/60">
+                  <span className="text-zinc-400">Minutos transcurridos:</span>
+                  <span className="font-mono text-emerald-400 font-bold">{pricing.elapsedMinutes} minutos</span>
+                </div>
+
+                {/* Wash services requested (listed by service name only, without showing money values) */}
+                {session.washOrders && session.washOrders.length > 0 && (
+                  <div className="py-1 border-b border-zinc-800/60">
+                    <span className="text-purple-300 font-semibold flex items-center gap-1 mb-1">
                       <Sparkles className="w-3 h-3 text-purple-400" />
-                      Lavado ({w.serviceName}):
+                      Servicios de lavado solicitados:
                     </span>
-                    <span>+{formatCLP(w.price)}</span>
+                    <ul className="list-disc list-inside text-zinc-300 text-[10px] pl-2 space-y-0.5">
+                      {session.washOrders.map((w, idx) => (
+                        <li key={idx}>
+                          {w.serviceName} {w.status === 'ready' || w.status === 'delivered' ? '(Listo / Terminado)' : '(En proceso)'}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                ))}
+                )}
 
-                {/* 4. Accessories */}
-                {session.accessorySales?.map((a, idx) => (
-                  <div
-                    key={idx}
-                    className="flex justify-between text-amber-300 border-t border-zinc-800 pt-1.5 font-mono"
-                  >
-                    <span className="font-sans flex items-center gap-1">
-                      <ShoppingBag className="w-3 h-3 text-amber-400" />
-                      {a.quantity}x {a.productName}:
-                    </span>
-                    <span>+{formatCLP(a.total)}</span>
-                  </div>
-                ))}
-
-                {/* 5. Valet Parking */}
+                {/* Valet Parking */}
                 {session.hasValetParking && (
-                  <div className="flex justify-between text-amber-300 border-t border-zinc-800 pt-1.5 font-mono">
-                    <span className="font-sans flex items-center gap-1">
+                  <div className="flex justify-between text-amber-300 py-1 border-b border-zinc-800/60">
+                    <span className="flex items-center gap-1 font-semibold">
                       <Key className="w-3 h-3 text-amber-400" />
-                      Valet Parking{session.valetDriver ? ` (${session.valetDriver})` : ''}:
+                      Servicio Valet Parking:
                     </span>
-                    <span>+{formatCLP(session.valetParkingFee || settings.valetParkingPrice || 2000)}</span>
+                    <span className="text-emerald-400 font-medium">Activo</span>
                   </div>
                 )}
               </div>
 
-              <div className="p-2.5 bg-zinc-900/90 border border-zinc-800 rounded-xl text-[10px] text-zinc-400 flex items-start gap-2">
-                <Info className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0 mt-0.5" />
-                <span>
-                  <strong>Pago en Caja al Salir:</strong> Al retirar tu auto, indica tu patente{' '}
-                  <strong className="text-zinc-200 font-mono">{session.plate}</strong> o puesto{' '}
-                  <strong className="text-zinc-200 font-mono">#{session.spotNumber}</strong> en la
-                  caseta de control.
-                </span>
+              <div className="p-3 bg-zinc-900/90 border border-zinc-800 rounded-xl text-[11px] text-zinc-300 flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <strong className="text-zinc-100 block">Pago de Estadía en Caseta de Caja</strong>
+                  <span className="text-zinc-400 text-[10px] leading-tight block">
+                    Al retirar tu vehículo, acércate a la caseta central indicando tu patente{' '}
+                    <strong className="text-zinc-200 font-mono">{session.plate}</strong> o puesto{' '}
+                    <strong className="text-zinc-200 font-mono">#{session.spotNumber}</strong> para el cálculo y pago final con boleta/factura electrónica.
+                  </span>
+                </div>
               </div>
             </div>
 

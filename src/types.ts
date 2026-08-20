@@ -1,10 +1,15 @@
 export type SpotStatus = 'available' | 'occupied' | 'reserved_monthly' | 'maintenance';
 
-export type ContractType = 'diurno' | 'nocturno' | 'completo_24_7';
+export type ContractType = 'semanal' | 'diurno' | 'nocturno' | 'completo_24_7';
 
 export type WashStatus = 'pending' | 'in_progress' | 'ready' | 'delivered';
 
-export type PaymentMethod = 'efectivo' | 'tarjeta_debito' | 'tarjeta_credito' | 'transferencia';
+export type PaymentMethod =
+  | 'efectivo'
+  | 'tarjeta_debito'
+  | 'tarjeta_credito'
+  | 'transferencia'
+  | 'cuenta_corriente_vip';
 
 export type POSTerminalProvider = 'tuu' | 'mercadopago';
 
@@ -42,6 +47,9 @@ export interface Vehicle {
   visitsCount: number;
   totalSpent: number;
   isFrequent: boolean; // >= 3 visits or marked
+  isVIP?: boolean; // VIP customer category (accumulated payment / tab)
+  vipCreditLimit?: number; // Maximum credit limit for accumulated payments (e.g. 100.000 CLP)
+  vipAccumulatedBalance?: number; // Current accumulated unpaid balance
   behaviorRating?: BehaviorRating;
   behaviorNotes?: BehaviorNote[];
   lastVisit?: string;
@@ -54,6 +62,9 @@ export interface Client {
   phone?: string;
   email?: string;
   plates: string[];
+  isVIP?: boolean;
+  vipCreditLimit?: number;
+  vipAccumulatedBalance?: number;
 }
 
 export const WASH_CATEGORIES = ['exterior', 'interior', 'completo', 'detailing'] as const;
@@ -149,8 +160,11 @@ export interface ParkingSession {
   clientPhone?: string;
   clientEmail?: string;
   isFrequent: boolean;
+  isVIP?: boolean; // Client VIP flag
   entryTime: string; // ISO string
+  isManualEntryTime?: boolean; // True if operator manually specified entry time
   exitTime?: string; // ISO string when finished
+  isManualExitTime?: boolean; // True if operator manually specified exit time
   simulatedElapsedMinutes?: number; // for manual time tests
   status: 'active' | 'completed' | 'cancelled';
   
@@ -205,7 +219,7 @@ export interface MonthlyContract {
   clientRut: string;
   clientPhone: string;
   clientEmail?: string;
-  type: ContractType; // diurno, nocturno, completo_24_7
+  type: ContractType; // semanal, diurno, nocturno, completo_24_7
   monthlyFee: number;
   startDate: string;
   endDate: string;
@@ -253,6 +267,7 @@ export interface ParkingSettings {
   extraTierCost?: number;
   valetParkingPrice?: number; // e.g. 2.000 CLP
   valetParkingEnabled?: boolean;
+  weeklyContractPrice?: number; // e.g. 15.000 CLP
   dayContractPrice: number; // 45.000 CLP
   nightContractPrice: number; // 35.000 CLP
   fullContractPrice: number; // 70.000 CLP
@@ -321,6 +336,16 @@ export interface CashDenominationCount {
   total: number;
 }
 
+export interface CashRegisterOpeningRecord {
+  id: string;
+  date: string;
+  openedAt: string;
+  cashierName: string;
+  initialCash: number;
+  notes?: string;
+  status: 'open' | 'closed';
+}
+
 export interface CashRegisterCloseRecord {
   id: string;
   date: string;
@@ -331,6 +356,7 @@ export interface CashRegisterCloseRecord {
   cashRevenue: number;
   cardRevenue: number;
   transferRevenue: number;
+  vipCreditRevenue?: number;
   totalRevenue: number;
   cashExpenses: number;
   bankExpenses: number;

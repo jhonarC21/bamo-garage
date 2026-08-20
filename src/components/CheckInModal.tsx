@@ -13,9 +13,13 @@ import {
   ShieldCheck,
   Check,
   Key,
+  Crown,
+  QrCode,
+  Radio,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP } from '../utils/pricing';
+import { bluetoothScanner } from '../utils/bluetoothScanner';
 
 interface CheckInModalProps {
   isOpen: boolean;
@@ -30,7 +34,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
   initialSpotNumber,
   onSuccess,
 }) => {
-  const { spots, washServices, getVehicleByPlate, checkInVehicle, settings } = useParking();
+  const { spots, washServices, getVehicleByPlate, checkInVehicle, settings, currentTime } = useParking();
 
   const availableSpots = spots.filter(
     (s) => s.status === 'available' || (initialSpotNumber && s.number === initialSpotNumber)
@@ -46,6 +50,17 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
   const [color, setColor] = useState('');
   const [year, setYear] = useState<string>('');
   
+  // Manual Entry Time
+  const [isManualEntryTime, setIsManualEntryTime] = useState(false);
+  const [manualEntryDate, setManualEntryDate] = useState<string>(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  });
+
+  // VIP Client
+  const [isVIP, setIsVIP] = useState(false);
+
   // Optional client fields
   const [clientName, setClientName] = useState('');
   const [clientRut, setClientRut] = useState('');
@@ -75,6 +90,18 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
     }
   }, [initialSpotNumber, isOpen]);
 
+  // Bluetooth & Laser QR Scanner listener
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const cleanup = bluetoothScanner.onScan((scannedCode) => {
+      const cleaned = scannedCode.trim().toUpperCase();
+      handlePlateChange(cleaned);
+    });
+
+    return () => cleanup();
+  }, [isOpen]);
+
   // Handle License Plate Autocomplete & Recognition
   const handlePlateChange = (val: string) => {
     const formatted = val.toUpperCase();
@@ -91,6 +118,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
         setClientRut(match.clientRut || '');
         setClientPhone(match.clientPhone || '');
         setClientEmail(match.clientEmail || '');
+        setIsVIP(!!match.isVIP);
         setIsFoundInDb(true);
         setIsFrequent(match.isFrequent || match.visitsCount >= settings.frequentThreshold);
         setVisitsCount(match.visitsCount || 0);
@@ -106,6 +134,11 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
     e.preventDefault();
     if (!plate.trim()) return;
 
+    let finalEntryTime: string | undefined = undefined;
+    if (isManualEntryTime && manualEntryDate) {
+      finalEntryTime = new Date(manualEntryDate).toISOString();
+    }
+
     checkInVehicle({
       spotNumber,
       plate: plate.trim().toUpperCase(),
@@ -117,6 +150,9 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
       clientRut: clientRut.trim() || undefined,
       clientPhone: clientPhone.trim() || undefined,
       clientEmail: clientEmail.trim() || undefined,
+      entryTime: finalEntryTime,
+      isManualEntryTime,
+      isVIP,
       washServiceId: selectedWashId || undefined,
       hasValetParking,
       valetParkingFee: hasValetParking ? (parseFloat(valetFee) || (settings.valetParkingPrice ?? 2000)) : 0,
@@ -211,22 +247,88 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
             </div>
           </div>
 
-          {/* Frequent Client Alert Badge */}
-          {isFrequent && (
-            <div className="bg-amber-950/60 border border-amber-600/60 rounded-xl p-3 flex items-center gap-2.5 text-amber-200">
-              <div className="w-8 h-8 rounded-lg bg-amber-900/60 border border-amber-600 flex items-center justify-center flex-shrink-0">
-                <Star className="w-4 h-4 text-amber-300 fill-amber-300" />
-              </div>
-              <div className="text-xs">
-                <div className="font-bold text-amber-300 flex items-center gap-1.5">
-                  ⭐ Cliente Frecuente Reconocido
-                </div>
-                <div className="text-[11px] text-amber-200/80">
-                  Este vehículo cuenta con <span className="font-bold font-mono text-amber-300">{visitsCount} visitas previas</span> registradas en el sistema.
-                </div>
-              </div>
+          {/* Manual Entry Time Selector */}
+          <div className="bg-zinc-900/90 border border-zinc-750 rounded-xl p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <label htmlFor="checkbox-manual-time" className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  id="checkbox-manual-time"
+                  type="checkbox"
+                  checked={isManualEntryTime}
+                  onChange={(e) => setIsManualEntryTime(e.target.checked)}
+                  className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500/30 accent-indigo-500 cursor-pointer"
+                />
+                <span className="font-semibold text-xs text-zinc-200 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                  Asignar hora de entrada manual
+                </span>
+              </label>
+              <span className="text-[11px] text-zinc-400 font-mono">
+                {isManualEntryTime ? 'Hora personalizada' : 'Hora actual automática'}
+              </span>
             </div>
-          )}
+
+            {isManualEntryTime && (
+              <div className="pt-2 border-t border-zinc-800">
+                <label className="block text-zinc-300 text-[11px] mb-1 font-medium">
+                  Fecha y Hora Exacta de Ingreso:
+                </label>
+                <input
+                  id="input-manual-entry-time"
+                  type="datetime-local"
+                  value={manualEntryDate}
+                  onChange={(e) => setManualEntryDate(e.target.value)}
+                  className="w-full bg-[#0A0B10] border border-indigo-500/60 rounded-lg px-3 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-indigo-400"
+                  required={isManualEntryTime}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* VIP Client & Frequent Client Badges */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {/* VIP Client Checkbox */}
+            <div className={`border rounded-xl p-3 flex items-center justify-between cursor-pointer transition ${isVIP ? 'bg-amber-950/40 border-amber-500/60 text-amber-200' : 'bg-zinc-900/60 border-zinc-800 text-zinc-400'}`}>
+              <label htmlFor="checkbox-vip-client" className="flex items-center gap-2 cursor-pointer select-none w-full">
+                <input
+                  id="checkbox-vip-client"
+                  type="checkbox"
+                  checked={isVIP}
+                  onChange={(e) => setIsVIP(e.target.checked)}
+                  className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-amber-500 focus:ring-amber-500/30 accent-amber-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <div className="font-bold text-xs flex items-center gap-1.5 text-amber-300">
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    Cliente VIP (Pago Acumulado)
+                  </div>
+                  <div className="text-[10px] text-zinc-400">
+                    Permite acumular deuda en cuenta corriente
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {/* Frequent Client Alert */}
+            {isFrequent ? (
+              <div className="bg-amber-950/60 border border-amber-600/60 rounded-xl p-3 flex items-center gap-2.5 text-amber-200">
+                <div className="w-7 h-7 rounded-lg bg-amber-900/60 border border-amber-600 flex items-center justify-center flex-shrink-0">
+                  <Star className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                </div>
+                <div className="text-xs">
+                  <div className="font-bold text-amber-300">⭐ Cliente Frecuente</div>
+                  <div className="text-[10px] text-amber-200/80">
+                    <span className="font-bold font-mono text-amber-300">{visitsCount} visitas</span> previas
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-zinc-900/40 border border-zinc-800 rounded-xl p-3 flex items-center gap-2 text-zinc-400">
+                <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-[11px]">Lector láser/Bluetooth QR activo</span>
+              </div>
+            )}
+          </div>
 
           {/* Vehicle Info (Auto-filled or manual) */}
           <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 space-y-3">
@@ -439,7 +541,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
               <Clock className="w-4 h-4 text-cyan-400" />
               <div>
                 <span className="font-bold text-zinc-100">Tarifa de cobro por tramos:</span>{' '}
-                <span>1er tramo fijo (0-30m) <strong className="text-emerald-400 font-mono">$900</strong>, luego <strong className="text-cyan-400 font-mono">$300</strong> cada 10 min.</span>
+                <span>1er tramo fijo (0-30m) <strong className="text-emerald-400 font-mono">${settings.base30MinPrice}</strong>, luego <strong className="text-cyan-400 font-mono">${settings.extra10MinPrice}</strong> cada 10 min.</span>
               </div>
             </div>
           </div>
@@ -466,3 +568,4 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
     </div>
   );
 };
+

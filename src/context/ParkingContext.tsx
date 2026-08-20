@@ -20,6 +20,7 @@ import {
   Employee,
   PayrollSettlement,
   AppUser,
+  CashRegisterOpeningRecord,
   CashRegisterCloseRecord,
   POSTerminalProvider,
 } from '../types';
@@ -52,6 +53,9 @@ interface CheckInData {
   clientRut?: string;
   clientPhone?: string;
   clientEmail?: string;
+  isVIP?: boolean;
+  entryTime?: string; // Manual entry time
+  isManualEntryTime?: boolean;
   washServiceId?: string;
   hasValetParking?: boolean;
   valetParkingFee?: number;
@@ -97,15 +101,22 @@ interface ParkingContextType {
   deleteUser: (id: string) => void;
   verifyUserPin: (userId: string, pin: string) => boolean;
 
-  // Expenses & Daily Cash
+  // Expenses & Daily Cash Register Opening/Closing
   expenses: BusinessExpense[];
   addExpense: (expense: Omit<BusinessExpense, 'id' | 'createdAt'>) => BusinessExpense;
   updateExpense: (id: string, updates: Partial<BusinessExpense>) => void;
   deleteExpense: (id: string) => void;
+  isCashRegisterOpen: boolean;
+  currentCashShift: CashRegisterOpeningRecord | null;
+  openDailyCashRegister: (initialCash: number, cashierName: string, notes?: string) => CashRegisterOpeningRecord;
   cashRegisterClosures: CashRegisterCloseRecord[];
   closeCashRegister: (record: Omit<CashRegisterCloseRecord, 'id'>) => CashRegisterCloseRecord;
   openingCash: number;
   setOpeningCash: (amount: number) => void;
+
+  // VIP Client & Tab Management
+  markClientVIP: (plateOrRut: string, isVIP: boolean, creditLimit?: number) => void;
+  payVIPAccumulatedBalance: (plateOrRut: string, amount: number, paymentMethod: PaymentMethod) => void;
 
   // Employees & Payroll (Chile)
   employees: Employee[];
@@ -134,6 +145,7 @@ interface ParkingContextType {
   deleteWashService: (id: string) => void;
   addAccessoryProduct: (product: Omit<AccessoryProduct, 'id'>) => AccessoryProduct;
   updateAccessoryProduct: (product: AccessoryProduct) => void;
+  saveAccessoryProduct: (product: AccessoryProduct) => void;
   deleteAccessoryProduct: (id: string) => void;
 
   // Actions
@@ -141,8 +153,31 @@ interface ParkingContextType {
   checkOutVehicle: (
     spotNumber: number,
     paymentMethod: PaymentMethod,
-    posInfo?: { provider: POSTerminalProvider; authorizationCode: string }
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    customExitTime?: string
   ) => ParkingSession | null;
+  updateActiveSpotSession: (
+    currentSpotNumber: number,
+    updates: {
+      targetSpotNumber?: number;
+      plate?: string;
+      brand?: string;
+      model?: string;
+      color?: string;
+      year?: number;
+      clientName?: string;
+      clientRut?: string;
+      clientPhone?: string;
+      clientEmail?: string;
+      entryTime?: string;
+      isManualEntryTime?: boolean;
+      isVIP?: boolean;
+      hasValetParking?: boolean;
+      valetParkingFee?: number;
+      valetDriver?: string;
+      notes?: string;
+    }
+  ) => { success: boolean; message: string };
   cancelActiveSpotSession: (spotNumber: number, adminPinOrBypass?: string) => { success: boolean; message: string };
   toggleSpotValetParking: (
     spotNumber: number,
@@ -161,6 +196,7 @@ interface ParkingContextType {
   requestCustomerAccessories: (spotNumber: number, items: AccessorySaleItem[], notes?: string) => boolean;
   createMonthlyContract: (contract: Omit<MonthlyContract, 'id' | 'contractNumber'>) => MonthlyContract;
   updateMonthlyContract: (id: string, updates: Partial<MonthlyContract>) => void;
+  deleteMonthlyContract: (contractId: string, adminPinOrBypass?: string) => { success: boolean; message: string };
   saveVehicle: (vehicle: Vehicle) => void;
   getVehicleByPlate: (plate: string) => Vehicle | undefined;
   advanceTime: (minutes: number) => void;
@@ -189,6 +225,7 @@ const STORAGE_KEYS = {
   PAYROLL: 'parking_app_payroll_v3_prod',
   CASH_CLOSURES: 'parking_app_cash_closures_v3_prod',
   OPENING_CASH: 'parking_app_opening_cash_v3_prod',
+  CASH_SHIFT: 'parking_app_cash_shift_v3_prod',
 };
 
 export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -282,6 +319,28 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const saved = localStorage.getItem(STORAGE_KEYS.CASH_CLOSURES);
     return saved ? JSON.parse(saved) : [];
   });
+
+  const [currentCashShift, setCurrentCashShift] = useState<CashRegisterOpeningRecord | null>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.CASH_SHIFT);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.status === 'open') return parsed;
+      } catch {
+        return null;
+      }
+    }
+    return {
+      id: 'shift_default',
+      date: new Date().toISOString().split('T')[0],
+      openedAt: new Date().toISOString(),
+      cashierName: 'Administrador Principal',
+      initialCash: 50000,
+      status: 'open',
+    };
+  });
+
+  const isCashRegisterOpen = currentCashShift?.status === 'open';
 
   // Employees & Payroll
   const [employees, setEmployees] = useState<Employee[]>(() => {
@@ -561,6 +620,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const visitsCount = (existingVehicle?.visitsCount || 0) + 1;
     const isFrequent = visitsCount >= settings.frequentThreshold || !!existingVehicle?.isFrequent;
+    const isVIP = data.isVIP !== undefined ? data.isVIP : !!existingVehicle?.isVIP;
+
+    // Entry time (manual or automatic)
+    const effectiveEntryTime = data.entryTime || currentTime.toISOString();
+    const isManualEntry = !!data.isManualEntryTime || !!data.entryTime;
 
     // Update / Register vehicle in database
     const updatedVehicle: Vehicle = {
@@ -577,7 +641,10 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       visitsCount,
       totalSpent: existingVehicle?.totalSpent || 0,
       isFrequent,
-      lastVisit: currentTime.toISOString(),
+      isVIP,
+      vipCreditLimit: existingVehicle?.vipCreditLimit ?? 200000,
+      vipAccumulatedBalance: existingVehicle?.vipAccumulatedBalance ?? 0,
+      lastVisit: effectiveEntryTime,
       createdAt: existingVehicle?.createdAt || currentTime.toISOString(),
     };
     saveVehicle(updatedVehicle);
@@ -595,7 +662,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           serviceName: service.name,
           price: service.price,
           status: 'pending',
-          requestedAt: currentTime.toISOString(),
+          requestedAt: effectiveEntryTime,
           paid: false,
         };
         createdWashOrders.push(washOrder);
@@ -620,7 +687,8 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       clientPhone: updatedVehicle.clientPhone,
       clientEmail: updatedVehicle.clientEmail,
       isFrequent,
-      entryTime: currentTime.toISOString(),
+      entryTime: effectiveEntryTime,
+      isManualEntryTime: isManualEntry,
       status: 'active',
       baseTierMinutes: 30,
       baseTierCost: settings.base30MinPrice,
@@ -655,6 +723,146 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return session;
+  };
+
+  // Update active spot session (Edit entry data, spot assignment, or entry time)
+  const updateActiveSpotSession = (
+    currentSpotNumber: number,
+    updates: {
+      targetSpotNumber?: number;
+      plate?: string;
+      brand?: string;
+      model?: string;
+      color?: string;
+      year?: number;
+      clientName?: string;
+      clientRut?: string;
+      clientPhone?: string;
+      clientEmail?: string;
+      entryTime?: string;
+      isManualEntryTime?: boolean;
+      isVIP?: boolean;
+      hasValetParking?: boolean;
+      valetParkingFee?: number;
+      valetDriver?: string;
+      notes?: string;
+    }
+  ): { success: boolean; message: string } => {
+    const currentSpot = spots.find((s) => s.number === currentSpotNumber);
+    if (!currentSpot || !currentSpot.currentSession) {
+      return { success: false, message: `No se encontró vehículo activo en el puesto #${currentSpotNumber}` };
+    }
+
+    const targetSpotNum = updates.targetSpotNumber ?? currentSpotNumber;
+    if (targetSpotNum !== currentSpotNumber) {
+      const targetSpot = spots.find((s) => s.number === targetSpotNum);
+      if (!targetSpot) {
+        return { success: false, message: `El puesto #${targetSpotNum} no existe en el estacionamiento.` };
+      }
+      if (targetSpot.status === 'occupied') {
+        return { success: false, message: `El puesto #${targetSpotNum} ya se encuentra ocupado por otro vehículo.` };
+      }
+    }
+
+    const oldSession = currentSpot.currentSession;
+    const newPlate = updates.plate ? updates.plate.trim().toUpperCase() : oldSession.plate;
+    const newEntryTime = updates.entryTime || oldSession.entryTime;
+
+    // Recalculate parking fee with new entry time
+    const pricing = calculateParkingFee(
+      newEntryTime,
+      currentTime,
+      undefined,
+      settings.base30MinPrice,
+      settings.extra10MinPrice
+    );
+
+    const valetCost = updates.hasValetParking !== undefined
+      ? (updates.hasValetParking ? (updates.valetParkingFee ?? oldSession.valetParkingFee ?? settings.valetParkingPrice ?? 2000) : 0)
+      : (oldSession.hasValetParking ? (oldSession.valetParkingFee ?? settings.valetParkingPrice ?? 2000) : 0);
+
+    const washCost = (oldSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
+    const accCost = (oldSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
+    const totalServices = washCost + accCost + valetCost;
+
+    const updatedSession: ParkingSession = {
+      ...oldSession,
+      spotNumber: targetSpotNum,
+      plate: newPlate,
+      brand: updates.brand !== undefined ? updates.brand : oldSession.brand,
+      model: updates.model !== undefined ? updates.model : oldSession.model,
+      color: updates.color !== undefined ? updates.color : oldSession.color,
+      year: updates.year !== undefined ? updates.year : oldSession.year,
+      clientName: updates.clientName !== undefined ? updates.clientName : oldSession.clientName,
+      clientRut: updates.clientRut !== undefined ? updates.clientRut : oldSession.clientRut,
+      clientPhone: updates.clientPhone !== undefined ? updates.clientPhone : oldSession.clientPhone,
+      clientEmail: updates.clientEmail !== undefined ? updates.clientEmail : oldSession.clientEmail,
+      entryTime: newEntryTime,
+      isManualEntryTime: updates.isManualEntryTime !== undefined ? updates.isManualEntryTime : oldSession.isManualEntryTime,
+      hasValetParking: updates.hasValetParking !== undefined ? updates.hasValetParking : oldSession.hasValetParking,
+      valetParkingFee: valetCost,
+      valetDriver: updates.valetDriver !== undefined ? updates.valetDriver : oldSession.valetDriver,
+      notes: updates.notes !== undefined ? updates.notes : oldSession.notes,
+      baseTierCost: pricing.baseTierCost,
+      parkingCost: pricing.totalParkingCost,
+      totalServicesCost: totalServices,
+      totalAmount: pricing.totalParkingCost + totalServices,
+    };
+
+    // Update vehicle database record
+    const existingVehicle = getVehicleByPlate(newPlate);
+    saveVehicle({
+      ...(existingVehicle || {
+        plate: newPlate,
+        brand: updatedSession.brand,
+        model: updatedSession.model,
+        color: updatedSession.color,
+        createdAt: currentTime.toISOString(),
+        visitsCount: 1,
+        totalSpent: 0,
+        isFrequent: false,
+      }),
+      brand: updatedSession.brand,
+      model: updatedSession.model,
+      color: updatedSession.color,
+      year: updatedSession.year,
+      clientName: updatedSession.clientName,
+      clientRut: updatedSession.clientRut,
+      clientPhone: updatedSession.clientPhone,
+      clientEmail: updatedSession.clientEmail,
+      isVIP: updates.isVIP !== undefined ? updates.isVIP : existingVehicle?.isVIP,
+    });
+
+    // Update spots state
+    setSpots((prev) =>
+      prev.map((s) => {
+        if (s.number === currentSpotNumber && currentSpotNumber !== targetSpotNum) {
+          const hasContract = monthlyContracts.some((c) => c.spotNumber === currentSpotNumber && c.status === 'active');
+          return {
+            ...s,
+            status: hasContract ? 'reserved_monthly' : 'available',
+            currentSessionId: undefined,
+            currentSession: undefined,
+            lastStatusChange: currentTime.toISOString(),
+          };
+        }
+        if (s.number === targetSpotNum) {
+          return {
+            ...s,
+            status: 'occupied',
+            currentSessionId: updatedSession.id,
+            currentSession: updatedSession,
+            lastStatusChange: currentTime.toISOString(),
+          };
+        }
+        return s;
+      })
+    );
+
+    return {
+      success: true,
+      message: `Vehículo ${newPlate} actualizado correctamente en puesto #${targetSpotNum}.`,
+    };
   };
 
   // Toggle or Update Valet Parking on an active Spot
@@ -696,19 +904,22 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
-  // Check Out Vehicle
+  // Check Out Vehicle (Supports manual exit time & VIP accumulated accounts)
   const checkOutVehicle = (
     spotNumber: number,
     paymentMethod: PaymentMethod,
-    posInfo?: { provider: POSTerminalProvider; authorizationCode: string }
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    customExitTime?: string
   ): ParkingSession | null => {
     const spot = spots.find((s) => s.number === spotNumber);
     if (!spot || !spot.currentSession) return null;
 
     const currentSession = spot.currentSession;
+    const effectiveExitTime = customExitTime || currentTime.toISOString();
+
     const pricing = calculateParkingFee(
       currentSession.entryTime,
-      currentTime,
+      new Date(effectiveExitTime),
       undefined,
       settings.base30MinPrice,
       settings.extra10MinPrice
@@ -730,7 +941,8 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const completedSession: ParkingSession = {
       ...currentSession,
-      exitTime: currentTime.toISOString(),
+      exitTime: effectiveExitTime,
+      isManualExitTime: !!customExitTime,
       status: 'completed',
       baseTierMinutes: pricing.baseTierMinutes,
       baseTierCost: pricing.baseTierCost,
@@ -748,14 +960,19 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       netAmountReceived: posCalculation.netAmount,
     };
 
-    // Update vehicle spending
+    // Update vehicle spending and VIP accumulated balance
     setVehicles((prev) =>
       prev.map((v) => {
         if (v.plate.toUpperCase() === completedSession.plate.toUpperCase()) {
+          const isVipPayment = paymentMethod === 'cuenta_corriente_vip';
           return {
             ...v,
+            isVIP: isVipPayment ? true : v.isVIP,
+            vipAccumulatedBalance: isVipPayment
+              ? (v.vipAccumulatedBalance || 0) + totalAmount
+              : (v.vipAccumulatedBalance || 0),
             totalSpent: (v.totalSpent || 0) + totalAmount,
-            lastVisit: currentTime.toISOString(),
+            lastVisit: effectiveExitTime,
           };
         }
         return v;
@@ -1166,6 +1383,102 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
+  // Delete Monthly/Weekly Rental Contract (Admin privileged)
+  const deleteMonthlyContract = (
+    contractId: string,
+    adminPinOrBypass?: string
+  ): { success: boolean; message: string } => {
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    const isPinValid =
+      adminPinOrBypass &&
+      users.some((u) => u.role === 'admin' && u.pin === adminPinOrBypass);
+
+    if (!isAdmin && !isPinValid) {
+      return {
+        success: false,
+        message: 'Acceso restringido: Solo el Administrador puede eliminar contratos de arriendo mensual o semanal.',
+      };
+    }
+
+    const contract = monthlyContracts.find((c) => c.id === contractId);
+    if (!contract) {
+      return { success: false, message: 'El contrato de arriendo no existe o ya fue eliminado.' };
+    }
+
+    const spotNumber = contract.spotNumber;
+
+    setMonthlyContracts((prev) => prev.filter((c) => c.id !== contractId));
+
+    // If spot was assigned to this contract, release the spot if not occupied
+    if (spotNumber) {
+      setSpots((prev) =>
+        prev.map((s) => {
+          if (s.number === spotNumber) {
+            if (s.status === 'reserved_monthly') {
+              return {
+                ...s,
+                status: 'available',
+                monthlyContractId: undefined,
+                monthlyContract: undefined,
+                lastStatusChange: currentTime.toISOString(),
+              };
+            } else {
+              return {
+                ...s,
+                monthlyContractId: undefined,
+                monthlyContract: undefined,
+              };
+            }
+          }
+          return s;
+        })
+      );
+    }
+
+    return {
+      success: true,
+      message: `Contrato de arriendo ${contract.contractNumber || ''} (${contract.clientName}) eliminado exitosamente.`,
+    };
+  };
+
+  // --- VIP Client Management & Tab Accounts ---
+  const markClientVIP = (plateOrRut: string, isVIP: boolean, creditLimit: number = 200000) => {
+    const clean = plateOrRut.trim().toUpperCase();
+    setVehicles((prev) =>
+      prev.map((v) => {
+        const matchPlate = v.plate.toUpperCase() === clean;
+        const matchRut = v.clientRut && v.clientRut.toUpperCase() === clean;
+        if (matchPlate || matchRut) {
+          return {
+            ...v,
+            isVIP,
+            vipCreditLimit: creditLimit,
+            vipAccumulatedBalance: v.vipAccumulatedBalance || 0,
+          };
+        }
+        return v;
+      })
+    );
+  };
+
+  const payVIPAccumulatedBalance = (plateOrRut: string, amount: number, paymentMethod: PaymentMethod) => {
+    const clean = plateOrRut.trim().toUpperCase();
+    setVehicles((prev) =>
+      prev.map((v) => {
+        const matchPlate = v.plate.toUpperCase() === clean;
+        const matchRut = v.clientRut && v.clientRut.toUpperCase() === clean;
+        if (matchPlate || matchRut) {
+          const currentBal = v.vipAccumulatedBalance || 0;
+          return {
+            ...v,
+            vipAccumulatedBalance: Math.max(0, currentBal - amount),
+          };
+        }
+        return v;
+      })
+    );
+  };
+
   // --- Users & 8-Digit PIN Management ---
   const updateUserPin = (userId: string, newPin: string): boolean => {
     // Validate strictly 8 numeric digits
@@ -1267,12 +1580,41 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setExpenses((prev) => prev.filter((e) => e.id !== id));
   };
 
+  const openDailyCashRegister = (
+    initialCash: number,
+    cashierName: string,
+    notes?: string
+  ): CashRegisterOpeningRecord => {
+    const newShift: CashRegisterOpeningRecord = {
+      id: `shift_${Date.now()}`,
+      date: currentTime.toISOString().split('T')[0],
+      openedAt: currentTime.toISOString(),
+      cashierName: cashierName || currentUser.name,
+      initialCash,
+      notes,
+      status: 'open',
+    };
+    setCurrentCashShift(newShift);
+    setOpeningCash(initialCash);
+    localStorage.setItem(STORAGE_KEYS.CASH_SHIFT, JSON.stringify(newShift));
+    localStorage.setItem(STORAGE_KEYS.OPENING_CASH, String(initialCash));
+    return newShift;
+  };
+
   const closeCashRegister = (recordData: Omit<CashRegisterCloseRecord, 'id'>): CashRegisterCloseRecord => {
     const newRecord: CashRegisterCloseRecord = {
       ...recordData,
       id: `cls_${Date.now()}`,
     };
     setCashRegisterClosures((prev) => [newRecord, ...prev]);
+    if (currentCashShift) {
+      const closedShift: CashRegisterOpeningRecord = {
+        ...currentCashShift,
+        status: 'closed',
+      };
+      setCurrentCashShift(closedShift);
+      localStorage.setItem(STORAGE_KEYS.CASH_SHIFT, JSON.stringify(closedShift));
+    }
     return newRecord;
   };
 
@@ -1433,6 +1775,18 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAccessoryProducts((prev) => prev.map((p) => (p.id === product.id ? product : p)));
   };
 
+  const saveAccessoryProduct = (product: AccessoryProduct) => {
+    setAccessoryProducts((prev) => {
+      const idx = prev.findIndex((p) => p.id === product.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = product;
+        return next;
+      }
+      return [product, ...prev];
+    });
+  };
+
   const deleteAccessoryProduct = (id: string) => {
     setAccessoryProducts((prev) => prev.filter((p) => p.id !== id));
   };
@@ -1532,6 +1886,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateExpense,
         deleteExpense,
         cashRegisterClosures,
+        currentCashShift,
+        isCashRegisterOpen,
+        openDailyCashRegister,
         closeCashRegister,
         openingCash,
         setOpeningCash,
@@ -1550,8 +1907,10 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteWashService,
         addAccessoryProduct,
         updateAccessoryProduct,
+        saveAccessoryProduct,
         deleteAccessoryProduct,
         checkInVehicle,
+        updateActiveSpotSession,
         checkOutVehicle,
         cancelActiveSpotSession,
         toggleSpotValetParking,
@@ -1562,6 +1921,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         requestCustomerAccessories,
         createMonthlyContract,
         updateMonthlyContract,
+        deleteMonthlyContract,
+        markClientVIP,
+        payVIPAccumulatedBalance,
         saveVehicle,
         getVehicleByPlate,
         advanceTime,
