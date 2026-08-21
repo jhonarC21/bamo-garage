@@ -24,6 +24,9 @@ import {
   CashRegisterCloseRecord,
   POSTerminalProvider,
   AutoSnapshot,
+  ReconciliationStatus,
+  VIPPaymentRecord,
+  UnifiedTransaction,
 } from '../types';
 import {
   INITIAL_SPOTS,
@@ -117,7 +120,28 @@ interface ParkingContextType {
 
   // VIP Client & Tab Management
   markClientVIP: (plateOrRut: string, isVIP: boolean, creditLimit?: number) => void;
-  payVIPAccumulatedBalance: (plateOrRut: string, amount: number, paymentMethod: PaymentMethod) => void;
+  vipPaymentRecords: VIPPaymentRecord[];
+  payVIPAccumulatedBalance: (
+    plateOrRut: string,
+    amount: number,
+    paymentMethod: PaymentMethod,
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
+  ) => void;
+
+  // Transaction Reconciliation Audit
+  reconcileTransaction: (
+    id: string,
+    type: 'parking' | 'wash' | 'accessory' | 'contract' | 'vip_payment',
+    status: ReconciliationStatus,
+    notes?: string
+  ) => void;
+  batchReconcileTransactions: (
+    items: { id: string; type: string }[],
+    status: ReconciliationStatus,
+    notes?: string
+  ) => void;
 
   // Employees & Payroll (Chile)
   employees: Employee[];
@@ -155,7 +179,9 @@ interface ParkingContextType {
     spotNumber: number,
     paymentMethod: PaymentMethod,
     posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
-    customExitTime?: string
+    customExitTime?: string,
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
   ) => ParkingSession | null;
   updateActiveSpotSession: (
     currentSpotNumber: number,
@@ -192,7 +218,9 @@ interface ParkingContextType {
     paymentMethod: PaymentMethod,
     spotNumber?: number,
     clientName?: string,
-    posInfo?: { provider: POSTerminalProvider; authorizationCode: string }
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
   ) => void;
   requestCustomerAccessories: (spotNumber: number, items: AccessorySaleItem[], notes?: string) => boolean;
   createMonthlyContract: (contract: Omit<MonthlyContract, 'id' | 'contractNumber'>) => MonthlyContract;
@@ -235,6 +263,7 @@ const STORAGE_KEYS = {
   CASH_CLOSURES: 'parking_app_cash_closures_v3_prod',
   OPENING_CASH: 'parking_app_opening_cash_v3_prod',
   CASH_SHIFT: 'parking_app_cash_shift_v3_prod',
+  VIP_PAYMENTS: 'parking_app_vip_payments_v3_prod',
   SNAPSHOTS: 'bamo_auto_snapshots_history_v1',
 };
 
@@ -284,6 +313,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [completedSessions, setCompletedSessions] = useState<ParkingSession[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.SESSIONS_HIST);
     return saved ? JSON.parse(saved) : INITIAL_COMPLETED_SESSIONS;
+  });
+
+  const [vipPaymentRecords, setVipPaymentRecords] = useState<VIPPaymentRecord[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.VIP_PAYMENTS);
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [settings, setSettings] = useState<ParkingSettings>(() => {
@@ -412,6 +446,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
               if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
               if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
+              if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
               if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
               if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
               if (Array.isArray(data.expenses)) setExpenses(data.expenses);
@@ -442,6 +477,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 accessorySales: [],
                 monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
                 completedSessions: INITIAL_COMPLETED_SESSIONS,
+                vipPaymentRecords: [],
                 settings: DEFAULT_SETTINGS,
                 users: INITIAL_USERS,
                 expenses: INITIAL_EXPENSES,
@@ -496,6 +532,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             accessorySales,
             monthlyContracts,
             completedSessions,
+            vipPaymentRecords,
             settings,
             users,
             expenses,
@@ -531,6 +568,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     accessorySales,
     monthlyContracts,
     completedSessions,
+    vipPaymentRecords,
     settings,
     users,
     expenses,
@@ -572,6 +610,10 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SESSIONS_HIST, JSON.stringify(completedSessions));
   }, [completedSessions]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.VIP_PAYMENTS, JSON.stringify(vipPaymentRecords));
+  }, [vipPaymentRecords]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
@@ -929,7 +971,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     spotNumber: number,
     paymentMethod: PaymentMethod,
     posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
-    customExitTime?: string
+    customExitTime?: string,
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
   ): ParkingSession | null => {
     const spot = spots.find((s) => s.number === spotNumber);
     if (!spot || !spot.currentSession) return null;
@@ -973,11 +1017,15 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       totalServicesCost,
       totalAmount,
       paymentMethod,
+      siiBoletaNumber: paymentMethod === 'efectivo' ? siiBoletaNumber?.trim() : undefined,
+      transferVoucherNumber: paymentMethod === 'transferencia' ? transferVoucherNumber?.trim() : undefined,
       posProvider: posInfo?.provider,
       authorizationCode: posInfo?.authorizationCode,
       posFeePercent: posCalculation.feePercent > 0 ? posCalculation.feePercent : undefined,
       posFeeAmount: posCalculation.feeAmount > 0 ? posCalculation.feeAmount : undefined,
       netAmountReceived: posCalculation.netAmount,
+      isReconciled: false,
+      reconciliationStatus: 'pending',
     };
 
     // Update vehicle spending and VIP accumulated balance

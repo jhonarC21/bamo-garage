@@ -80,6 +80,8 @@ export interface WashService {
   iconName?: string;
 }
 
+export type ReconciliationStatus = 'pending' | 'verified' | 'discrepancy';
+
 export interface WashOrder {
   id: string;
   ticketId?: string;
@@ -97,11 +99,18 @@ export interface WashOrder {
   completedAt?: string;
   paid: boolean;
   paymentMethod?: PaymentMethod;
+  siiBoletaNumber?: string; // N° Boleta Electrónica SII para pagos en efectivo
+  transferVoucherNumber?: string; // N° Transacción / Comprobante para transferencias
   posProvider?: POSTerminalProvider;
   authorizationCode?: string;
   posFeePercent?: number;
   posFeeAmount?: number;
   netAmountReceived?: number;
+  isReconciled?: boolean;
+  reconciledAt?: string;
+  reconciledBy?: string;
+  reconciliationNotes?: string;
+  reconciliationStatus?: ReconciliationStatus;
 }
 
 export const ACCESSORY_CATEGORIES = ['limpieza', 'aromas', 'electronica', 'emergencia', 'confort'] as const;
@@ -138,6 +147,8 @@ export interface AccessorySale {
   total: number;
   totalAmount?: number; // alias for total compatibility
   paymentMethod: PaymentMethod;
+  siiBoletaNumber?: string; // N° Boleta Electrónica SII para efectivo
+  transferVoucherNumber?: string; // N° Transacción para transferencias
   clientName?: string;
   paid: boolean;
   posProvider?: POSTerminalProvider;
@@ -145,6 +156,11 @@ export interface AccessorySale {
   posFeePercent?: number;
   posFeeAmount?: number;
   netAmountReceived?: number;
+  isReconciled?: boolean;
+  reconciledAt?: string;
+  reconciledBy?: string;
+  reconciliationNotes?: string;
+  reconciliationStatus?: ReconciliationStatus;
 }
 
 export interface ParkingSession {
@@ -188,6 +204,8 @@ export interface ParkingSession {
   totalServicesCost: number;
   totalAmount: number;
   paymentMethod?: PaymentMethod;
+  siiBoletaNumber?: string; // N° Boleta Electrónica SII emitida en efectivo
+  transferVoucherNumber?: string; // N° Transacción / Comprobante de transferencia bancaria
   posProvider?: POSTerminalProvider;
   authorizationCode?: string;
   posFeePercent?: number;
@@ -195,6 +213,13 @@ export interface ParkingSession {
   netAmountReceived?: number;
   notes?: string;
   qrCodeUrl?: string;
+
+  // Reconciliation Audit by Administrator
+  isReconciled?: boolean;
+  reconciledAt?: string;
+  reconciledBy?: string;
+  reconciliationNotes?: string;
+  reconciliationStatus?: ReconciliationStatus;
 }
 
 export interface ParkingSpot {
@@ -227,6 +252,8 @@ export interface MonthlyContract {
   status: 'active' | 'expired' | 'pending';
   lastPaymentDate?: string;
   paymentMethod?: PaymentMethod;
+  siiBoletaNumber?: string; // N° Boleta SII si pagó en efectivo
+  transferVoucherNumber?: string; // N° Transacción si pagó por transferencia
   posProvider?: POSTerminalProvider;
   authorizationCode?: string;
   posFeePercent?: number;
@@ -234,6 +261,13 @@ export interface MonthlyContract {
   netAmountReceived?: number;
   createdAt?: string;
   notes?: string;
+
+  // Reconciliation Audit
+  isReconciled?: boolean;
+  reconciledAt?: string;
+  reconciledBy?: string;
+  reconciliationNotes?: string;
+  reconciliationStatus?: ReconciliationStatus;
 }
 
 export interface ShiftClosure {
@@ -483,4 +517,46 @@ export interface AutoSnapshot {
   summary: string;
   data: any;
 }
+
+export interface VIPPaymentRecord {
+  id: string;
+  date: string;
+  plateOrRut: string;
+  clientName?: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  siiBoletaNumber?: string;
+  transferVoucherNumber?: string;
+  posProvider?: POSTerminalProvider;
+  authorizationCode?: string;
+  isReconciled?: boolean;
+  reconciledAt?: string;
+  reconciledBy?: string;
+  reconciliationNotes?: string;
+  reconciliationStatus?: ReconciliationStatus;
+}
+
+export interface UnifiedTransaction {
+  id: string;
+  type: 'parking' | 'wash' | 'accessory' | 'contract' | 'vip_payment';
+  typeLabel: string;
+  referenceId: string;
+  date: string;
+  description: string;
+  clientOrPlate: string;
+  grossAmount: number;
+  netAmount?: number;
+  feeAmount?: number;
+  paymentMethod: PaymentMethod;
+  siiBoletaNumber?: string;
+  transferVoucherNumber?: string;
+  posProvider?: POSTerminalProvider;
+  authorizationCode?: string;
+  isReconciled: boolean;
+  reconciledAt?: string;
+  reconciledBy?: string;
+  reconciliationNotes?: string;
+  reconciliationStatus: ReconciliationStatus;
+}
+
 
