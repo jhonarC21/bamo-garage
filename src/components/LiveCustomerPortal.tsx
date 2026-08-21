@@ -245,11 +245,13 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     }
   };
 
-  const filteredAccessories = accessoryProducts.filter((p) => {
+  const filteredAccessories = (accessoryProducts || []).filter((p) => {
+    if (!p) return false;
     const matchesCat = shopCategory === 'all' || p.category === shopCategory;
-    const matchesSearch =
-      p.name.toLowerCase().includes(shopSearch.toLowerCase()) ||
-      p.description.toLowerCase().includes(shopSearch.toLowerCase());
+    const pName = (p.name || '').toLowerCase();
+    const pDesc = (p.description || '').toLowerCase();
+    const q = (shopSearch || '').trim().toLowerCase();
+    const matchesSearch = !q || pName.includes(q) || pDesc.includes(q);
     return matchesCat && matchesSearch;
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "Bamo Garage SpA",
   "description": "Sistema integral de gestión de estacionamiento de 10 puestos, lavado de autos, tienda de accesorios, caja diaria, contabilidad SII Calama y emisión de tickets térmicos para Bamo Garage SpA (RUT: 78.084.649-6, Cobija 2058).",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

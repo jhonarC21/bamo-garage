@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShoppingBag,
   Plus,
@@ -18,15 +18,50 @@ import {
   Edit2,
   X,
   Tag,
+  Camera,
+  Upload,
+  Sparkles,
+  Bluetooth,
+  RefreshCw,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime, calculatePOSFee } from '../utils/pricing';
-import { AccessoryProduct, AccessorySaleItem, PaymentMethod, POSTerminalProvider } from '../types';
+import { AccessoryProduct, AccessoryCategory, AccessorySaleItem, PaymentMethod, POSTerminalProvider } from '../types';
+import { bluetoothScanner } from '../utils/bluetoothScanner';
+import { BluetoothScannerModal } from './BluetoothScannerModal';
 import confetti from 'canvas-confetti';
 
 interface CartItem extends AccessorySaleItem {
   stock: number;
 }
+
+// Preset visual icons/images for vehicle accessories when user doesn't have a photo
+const PRODUCT_IMAGE_PRESETS = [
+  {
+    name: 'Aromatizante',
+    url: 'https://images.unsplash.com/photo-1615397349754-cfa2066a298e?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Silicona & Cera',
+    url: 'https://images.unsplash.com/photo-1607860108855-64acf2078ed9?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Paño Microfibra',
+    url: 'https://images.unsplash.com/photo-1585421514738-01798e348b17?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Cargador / Cable USB',
+    url: 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Inflador / Medidor Aire',
+    url: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=300&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Refrigerante / Líquido',
+    url: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?w=300&auto=format&fit=crop&q=80',
+  },
+];
 
 export const AccessoriesShop: React.FC = () => {
   const {
@@ -49,20 +84,51 @@ export const AccessoriesShop: React.FC = () => {
   const [posProvider, setPosProvider] = useState<POSTerminalProvider>('tuu');
   const [authorizationCode, setAuthorizationCode] = useState<string>('');
   const [saleSuccess, setSaleSuccess] = useState(false);
+  const [catalogSuccessMsg, setCatalogSuccessMsg] = useState<string | null>(null);
+  const [isBluetoothModalOpen, setIsBluetoothModalOpen] = useState(false);
 
   // Catalog product modal state
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<AccessoryProduct | null>(null);
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('limpieza');
+  const [category, setCategory] = useState<AccessoryCategory>('limpieza');
   const [price, setPrice] = useState('');
   const [costPrice, setCostPrice] = useState('');
-  const [stock, setStock] = useState('');
+  const [stock, setStock] = useState('10');
   const [minStock, setMinStock] = useState('5');
   const [image, setImage] = useState('');
   const [description, setDescription] = useState('');
-  const [catalogSuccessMsg, setCatalogSuccessMsg] = useState<string | null>(null);
+  const [imageTab, setImageTab] = useState<'device' | 'url' | 'presets'>('device');
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Subscribe to Bluetooth Laser Scanner for auto-adding scanned items
+  useEffect(() => {
+    const unsub = bluetoothScanner.onScan((scannedCode) => {
+      const codeClean = (scannedCode || '').trim().toUpperCase();
+      if (!codeClean) return;
+      const match = (accessoryProducts || []).find((p) => {
+        if (!p) return false;
+        const pSku = (p.sku || '').toUpperCase();
+        const pName = (p.name || '').toUpperCase();
+        return pSku === codeClean || (codeClean.length >= 3 && pName.includes(codeClean));
+      });
+      if (match) {
+        if (match.stock > 0) {
+          addToCart(match);
+          setCatalogSuccessMsg(`¡Láser Bluetooth escaneó: ${match.name || 'Producto'} (+1 al carrito)!`);
+          setTimeout(() => setCatalogSuccessMsg(null), 3500);
+        } else {
+          setCatalogSuccessMsg(`¡Láser Bluetooth detectó ${match.name || 'Producto'}, pero no tiene stock disponible!`);
+          setTimeout(() => setCatalogSuccessMsg(null), 3500);
+        }
+      }
+    });
+    return () => unsub();
+  }, [accessoryProducts]);
 
   const categories = [
     { id: 'todos', label: 'Todos' },
@@ -73,12 +139,14 @@ export const AccessoriesShop: React.FC = () => {
     { id: 'confort', label: 'Confort' },
   ];
 
-  const filteredProducts = accessoryProducts.filter((product) => {
+  const filteredProducts = (accessoryProducts || []).filter((product) => {
+    if (!product) return false;
     const matchesCat = selectedCategory === 'todos' || product.category === selectedCategory;
-    const matchesSearch =
-      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (product.description && product.description.toLowerCase().includes(searchQuery.toLowerCase()));
+    const pName = (product.name || '').toLowerCase();
+    const pSku = (product.sku || '').toLowerCase();
+    const pDesc = (product.description || '').toLowerCase();
+    const q = (searchQuery || '').trim().toLowerCase();
+    const matchesSearch = !q || pName.includes(q) || pSku.includes(q) || pDesc.includes(q);
     return matchesCat && matchesSearch;
   });
 
@@ -95,6 +163,7 @@ export const AccessoriesShop: React.FC = () => {
     setMinStock('5');
     setImage('');
     setDescription('');
+    setImageTab('device');
     setIsProductModalOpen(true);
   };
 
@@ -109,7 +178,64 @@ export const AccessoriesShop: React.FC = () => {
     setMinStock(String(product.minStock));
     setImage(product.image || '');
     setDescription(product.description || '');
+    setImageTab(product.image ? 'device' : 'presets');
     setIsProductModalOpen(true);
+  };
+
+  // Helper to process uploaded file (from device picker or camera) and compress via Canvas
+  const processImageFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona un archivo de imagen válido (JPG, PNG, WEBP).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const rawDataUrl = event.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 600;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          setImage(compressedDataUrl);
+        } else {
+          setImage(rawDataUrl);
+        }
+      };
+      img.src = rawDataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeviceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processImageFile(file);
+    }
+  };
+
+  const handleDropImage = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingImage(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processImageFile(file);
+    }
   };
 
   const handleSaveProduct = (e: React.FormEvent) => {
@@ -329,15 +455,27 @@ export const AccessoriesShop: React.FC = () => {
               ))}
             </div>
 
-            <div className="relative w-full sm:w-56">
-              <input
-                type="text"
-                placeholder="Buscar por nombre o SKU..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-1.5 text-white text-xs pl-8 focus:outline-none focus:border-amber-500"
-              />
-              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2.5" />
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-56">
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre o SKU..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-1.5 text-white text-xs pl-8 focus:outline-none focus:border-amber-500"
+                />
+                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2.5" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsBluetoothModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-850 hover:bg-zinc-800 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 rounded-lg text-xs font-semibold shadow-sm transition whitespace-nowrap active:scale-95"
+                title="Conectar o configurar Lector Láser Bluetooth"
+              >
+                <Bluetooth className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">Lector Láser BT</span>
+              </button>
             </div>
           </div>
 
@@ -722,7 +860,7 @@ export const AccessoriesShop: React.FC = () => {
                   </label>
                   <select
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    onChange={(e) => setCategory(e.target.value as AccessoryCategory)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-500 capitalize"
                   >
                     <option value="limpieza">Limpieza</option>
@@ -749,29 +887,204 @@ export const AccessoriesShop: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-zinc-300 font-semibold mb-1">
-                  URL de Imagen del Producto
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <ImageIcon className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
-                    <input
-                      type="url"
-                      placeholder="https://ejemplo.cl/imagen-producto.jpg"
-                      value={image}
-                      onChange={(e) => setImage(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
+              {/* Product Photo Upload Section */}
+              <div className="space-y-2 bg-zinc-900/80 p-3.5 rounded-2xl border border-zinc-800">
+                <div className="flex items-center justify-between">
+                  <label className="block text-zinc-200 font-bold text-xs flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-amber-400" />
+                    <span>Foto o Imagen del Producto</span>
+                  </label>
                   {image && (
-                    <img
-                      src={image}
-                      alt="Preview"
-                      className="w-10 h-10 rounded-lg object-cover bg-zinc-900 border border-zinc-700"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setImage('')}
+                      className="text-[11px] text-rose-400 hover:text-rose-300 transition underline"
+                    >
+                      Quitar foto
+                    </button>
                   )}
                 </div>
+
+                {/* Tab selector */}
+                <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setImageTab('device')}
+                    className={`flex-1 py-1 px-2 rounded-lg font-semibold transition flex items-center justify-center gap-1.5 ${
+                      imageTab === 'device'
+                        ? 'bg-amber-600 text-white shadow'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Desde Dispositivo / Cámara</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setImageTab('presets')}
+                    className={`flex-1 py-1 px-2 rounded-lg font-semibold transition flex items-center justify-center gap-1.5 ${
+                      imageTab === 'presets'
+                        ? 'bg-amber-600 text-white shadow'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Fotos Listas</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setImageTab('url')}
+                    className={`flex-1 py-1 px-2 rounded-lg font-semibold transition flex items-center justify-center gap-1.5 ${
+                      imageTab === 'url'
+                        ? 'bg-amber-600 text-white shadow'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    <span>URL Web</span>
+                  </button>
+                </div>
+
+                {/* Tab 1: Device / Camera upload */}
+                {imageTab === 'device' && (
+                  <div className="space-y-3">
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDraggingImage(true);
+                      }}
+                      onDragLeave={() => setIsDraggingImage(false)}
+                      onDrop={handleDropImage}
+                      className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                        isDraggingImage
+                          ? 'border-amber-400 bg-amber-950/30'
+                          : 'border-zinc-700 hover:border-zinc-500 bg-zinc-950/50'
+                      }`}
+                    >
+                      <div className="flex flex-col items-center gap-2">
+                        {image ? (
+                          <div className="relative group">
+                            <img
+                              src={image}
+                              alt="Vista previa"
+                              className="w-24 h-24 rounded-xl object-cover border-2 border-amber-500/60 shadow-lg"
+                            />
+                            <div className="text-[10px] text-emerald-400 font-bold mt-1 flex items-center justify-center gap-1">
+                              <span>✓ Imagen cargada y optimizada</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-zinc-850 flex items-center justify-center text-zinc-400">
+                            <Upload className="w-5 h-5 text-amber-400" />
+                          </div>
+                        )}
+
+                        <p className="text-zinc-300 text-xs font-semibold">
+                          Arrastra y suelta una imagen o selecciónala de tu equipo
+                        </p>
+                        <p className="text-zinc-400 text-[10px]">
+                          Formatos JPG, PNG, WEBP (se optimiza automáticamente)
+                        </p>
+
+                        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-bold text-xs transition flex items-center gap-1.5 border border-zinc-700"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-amber-400" />
+                            Buscar en Archivos / Galería
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => cameraInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-amber-950/80 hover:bg-amber-900 text-amber-200 rounded-lg font-bold text-xs transition flex items-center gap-1.5 border border-amber-700/60"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-amber-400" />
+                            Tomar Foto con Cámara
+                          </button>
+                        </div>
+
+                        {/* Hidden Inputs */}
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleDeviceFileChange}
+                          className="hidden"
+                        />
+                        <input
+                          ref={cameraInputRef}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handleDeviceFileChange}
+                          className="hidden"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 2: Presets */}
+                {imageTab === 'presets' && (
+                  <div className="space-y-2">
+                    <p className="text-zinc-400 text-[11px]">
+                      Selecciona una foto automotriz predeterminada de alta calidad:
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {PRODUCT_IMAGE_PRESETS.map((preset, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setImage(preset.url)}
+                          className={`p-1.5 rounded-xl border text-left transition flex flex-col items-center gap-1 group ${
+                            image === preset.url
+                              ? 'bg-amber-950/80 border-amber-500 ring-1 ring-amber-500'
+                              : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+                          }`}
+                        >
+                          <img
+                            src={preset.url}
+                            alt={preset.name}
+                            className="w-full h-14 rounded-lg object-cover group-hover:scale-105 transition"
+                          />
+                          <span className="text-[10px] text-zinc-300 font-semibold truncate w-full text-center">
+                            {preset.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 3: Direct URL */}
+                {imageTab === 'url' && (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <ImageIcon className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
+                        <input
+                          type="url"
+                          placeholder="https://ejemplo.cl/imagen-producto.jpg"
+                          value={image}
+                          onChange={(e) => setImage(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-white text-xs focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      {image && (
+                        <img
+                          src={image}
+                          alt="Preview"
+                          className="w-10 h-10 rounded-lg object-cover bg-zinc-900 border border-zinc-700"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

@@ -213,19 +213,29 @@ export const DailyCashRegister: React.FC = () => {
 
     closeCashRegister({
       date: currentTime.toISOString(),
+      openedAt: currentTime.toISOString(),
+      closedAt: currentTime.toISOString(),
+      cashierName: currentUser.name,
       closedBy: currentUser.name,
       openingCash,
+      cashRevenue: incomeByMethod.efectivo,
       cashIncomes: incomeByMethod.efectivo,
+      cardRevenue: (incomeByMethod.tarjeta_debito || 0) + (incomeByMethod.tarjeta_credito || 0),
       cardIncomes: (incomeByMethod.tarjeta_debito || 0) + (incomeByMethod.tarjeta_credito || 0),
+      transferRevenue: incomeByMethod.transferencia,
       transferIncomes: incomeByMethod.transferencia,
+      totalRevenue: totalGrossIncome,
       totalIncomes: totalGrossIncome,
       cashExpenses: expensesFromCashBox,
       bankExpenses: expensesFromBank,
       totalExpenses: totalExpensesToday,
+      expectedCashInDrawer: theoreticalCashInDrawer,
       theoreticalCashInDrawer,
+      actualCashCounted: counted,
       actualCountedCash: counted,
       difference: diff,
       notes: closureNotes.trim() || undefined,
+      status: 'closed',
     });
 
     setClosureSuccessMessage(`¡Cierre de caja registrado exitosamente! Diferencia: ${diff >= 0 ? '+' : ''}${formatCLP(diff)}`);
@@ -235,11 +245,13 @@ export const DailyCashRegister: React.FC = () => {
     setActiveSubTab('history');
   };
 
-  const filteredExpenses = expenses.filter((exp) => {
-    const matchesSearch =
-      exp.concept.toLowerCase().includes(expenseSearch.toLowerCase()) ||
-      (exp.documentNumber && exp.documentNumber.toLowerCase().includes(expenseSearch.toLowerCase())) ||
-      exp.responsible.toLowerCase().includes(expenseSearch.toLowerCase());
+  const filteredExpenses = (expenses || []).filter((exp) => {
+    if (!exp) return false;
+    const q = (expenseSearch || '').trim().toLowerCase();
+    const c = (exp.concept || '').toLowerCase();
+    const doc = (exp.documentNumber || '').toLowerCase();
+    const resp = (exp.responsible || '').toLowerCase();
+    const matchesSearch = !q || c.includes(q) || doc.includes(q) || resp.includes(q);
     const matchesCat = expenseCategoryFilter === 'ALL' || exp.category === expenseCategoryFilter;
     return matchesSearch && matchesCat;
   });

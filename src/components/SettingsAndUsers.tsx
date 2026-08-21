@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Settings,
   Users,
@@ -23,10 +23,21 @@ import {
   EyeOff,
   RefreshCw,
   Key,
+  Sun,
+  Moon,
+  Calendar,
+  DollarSign,
+  Download,
+  Upload,
+  Database,
+  History,
+  Cloud,
+  HelpCircle,
+  ShieldAlert,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP } from '../utils/pricing';
-import { AppUser, UserRole, WashService, AccessoryProduct, ACCESSORY_CATEGORIES } from '../types';
+import { AppUser, UserRole, WashService, AccessoryProduct, AccessoryCategory, ACCESSORY_CATEGORIES } from '../types';
 
 export const SettingsAndUsers: React.FC = () => {
   const {
@@ -47,9 +58,23 @@ export const SettingsAndUsers: React.FC = () => {
     deleteAccessoryProduct,
     settings,
     updateSettings,
+    autoSnapshots,
+    exportBackupData,
+    downloadBackupFile,
+    restoreFromBackupData,
+    restoreFromSnapshot,
+    forceCloudSync,
+    cloudSyncStatus,
+    lastCloudSyncTime,
+    resetToInitialData,
   } = useParking();
 
-  const [activeTab, setActiveTab] = useState<'users' | 'wash' | 'shop' | 'tariffs' | 'tax' | 'pos'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'wash' | 'shop' | 'tariffs' | 'tax' | 'pos' | 'backup'>('users');
+  const [backupStatusMsg, setBackupStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [resetConfirmPin, setResetConfirmPin] = useState('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- PIN Management State ---
   const [selectedUserForPin, setSelectedUserForPin] = useState<AppUser | null>(null);
@@ -83,19 +108,40 @@ export const SettingsAndUsers: React.FC = () => {
   const [editingProd, setEditingProd] = useState<AccessoryProduct | null>(null);
   const [prodName, setProdName] = useState('');
   const [prodDescription, setProdDescription] = useState('');
-  const [prodCategory, setProdCategory] = useState<string>(ACCESSORY_CATEGORIES[0]);
+  const [prodCategory, setProdCategory] = useState<AccessoryCategory>(ACCESSORY_CATEGORIES[0]);
   const [prodPrice, setProdPrice] = useState('2990');
   const [prodStock, setProdStock] = useState('15');
 
-  // --- Tariff Form State ---
-  const [baseTierMinutes, setBaseTierMinutes] = useState(String(settings.baseTierMinutes));
-  const [baseTierCost, setBaseTierCost] = useState(String(settings.baseTierCost));
-  const [extraTierMinutes, setExtraTierMinutes] = useState(String(settings.extraTierMinutes));
-  const [extraTierCost, setExtraTierCost] = useState(String(settings.extraTierCost));
-  const [frequentThreshold, setFrequentThreshold] = useState(String(settings.frequentThreshold));
-  const [frequentDiscount, setFrequentDiscount] = useState(String(settings.frequentDiscountPercentage));
+  // --- Tariff & Rental Plans Form State ---
+  const [baseTierMinutes, setBaseTierMinutes] = useState(String(settings.baseTierMinutes || 30));
+  const [baseTierCost, setBaseTierCost] = useState(String(settings.baseTierCost || 900));
+  const [extraTierMinutes, setExtraTierMinutes] = useState(String(settings.extraTierMinutes || 10));
+  const [extraTierCost, setExtraTierCost] = useState(String(settings.extraTierCost || 300));
+  const [frequentThreshold, setFrequentThreshold] = useState(String(settings.frequentThreshold || 3));
+  const [frequentDiscount, setFrequentDiscount] = useState(String(settings.frequentDiscountPercent ?? settings.frequentDiscountPercentage ?? 10));
   const [valetPrice, setValetPrice] = useState(String(settings.valetParkingPrice || 2000));
   const [valetEnabled, setValetEnabled] = useState(settings.valetParkingEnabled !== false);
+  
+  // Rental Plans State
+  const [dayPlanPrice, setDayPlanPrice] = useState(String(settings.dayContractPrice || 45000));
+  const [dayPlanSchedule, setDayPlanSchedule] = useState(settings.dayContractSchedule || '08:00 a 20:00 hrs');
+  const [dayPlanDescription, setDayPlanDescription] = useState(settings.dayContractDescription || 'Arriendo de uso comercial diurno');
+
+  const [nightPlanPrice, setNightPlanPrice] = useState(String(settings.nightContractPrice || 35000));
+  const [nightPlanSchedule, setNightPlanSchedule] = useState(settings.nightContractSchedule || '20:00 a 08:00 hrs');
+  const [nightPlanDescription, setNightPlanDescription] = useState(settings.nightContractDescription || 'Custodia nocturna protegida con portón y cámaras');
+
+  const [fullPlanPrice, setFullPlanPrice] = useState(String(settings.fullContractPrice || 70000));
+  const [fullPlanSchedule, setFullPlanSchedule] = useState(settings.fullContractSchedule || '24 Horas / Lunes a Domingo');
+  const [fullPlanDescription, setFullPlanDescription] = useState(settings.fullContractDescription || 'Acceso ilimitado 24/7 sin restricción horaria');
+
+  const [weeklyPlanPrice, setWeeklyPlanPrice] = useState(String(settings.weeklyContractPrice || 15000));
+  const [weeklyPlanSchedule, setWeeklyPlanSchedule] = useState(settings.weeklyContractSchedule || '7 Días Continuos (24 Horas)');
+  const [weeklyPlanDescription, setWeeklyPlanDescription] = useState(settings.weeklyContractDescription || 'Tarifa plana semanal para estadías temporales');
+
+  const [operatingStart, setOperatingStart] = useState(settings.operatingHoursStart || '07:00');
+  const [operatingEnd, setOperatingEnd] = useState(settings.operatingHoursEnd || '23:00');
+
   const [tariffSaveMsg, setTariffSaveMsg] = useState<string | null>(null);
 
   // --- Tax & Payroll Settings State ---
@@ -222,17 +268,20 @@ export const SettingsAndUsers: React.FC = () => {
       });
     } else {
       addAccessoryProduct({
+        sku: `ACC-${Date.now().toString().slice(-4)}`,
         name: prodName.trim(),
         description: prodDescription.trim(),
         category: prodCategory,
         price: priceNum,
+        costPrice: priceNum * 0.6,
         stock: stockNum,
+        minStock: 3,
       });
     }
     setIsShopModalOpen(false);
   };
 
-  // Handle Save Tariffs
+  // Handle Save Tariffs & Rental Plans
   const handleSaveTariffs = (e: React.FormEvent) => {
     e.preventDefault();
     updateSettings({
@@ -241,11 +290,27 @@ export const SettingsAndUsers: React.FC = () => {
       extraTierMinutes: parseInt(extraTierMinutes, 10) || 10,
       extraTierCost: parseFloat(extraTierCost) || 300,
       frequentThreshold: parseInt(frequentThreshold, 10) || 3,
+      frequentDiscountPercent: parseFloat(frequentDiscount) || 10,
       frequentDiscountPercentage: parseFloat(frequentDiscount) || 10,
       valetParkingPrice: parseFloat(valetPrice) || 2000,
       valetParkingEnabled: valetEnabled,
+      // Rental Plans & Schedules
+      dayContractPrice: parseFloat(dayPlanPrice) || 45000,
+      dayContractSchedule: dayPlanSchedule.trim() || '08:00 a 20:00 hrs',
+      dayContractDescription: dayPlanDescription.trim(),
+      nightContractPrice: parseFloat(nightPlanPrice) || 35000,
+      nightContractSchedule: nightPlanSchedule.trim() || '20:00 a 08:00 hrs',
+      nightContractDescription: nightPlanDescription.trim(),
+      fullContractPrice: parseFloat(fullPlanPrice) || 70000,
+      fullContractSchedule: fullPlanSchedule.trim() || '24 Horas / Lunes a Domingo',
+      fullContractDescription: fullPlanDescription.trim(),
+      weeklyContractPrice: parseFloat(weeklyPlanPrice) || 15000,
+      weeklyContractSchedule: weeklyPlanSchedule.trim() || '7 Días Continuos (24 Horas)',
+      weeklyContractDescription: weeklyPlanDescription.trim(),
+      operatingHoursStart: operatingStart.trim() || '07:00',
+      operatingHoursEnd: operatingEnd.trim() || '23:00',
     });
-    setTariffSaveMsg('¡Tarifas y tramos actualizados correctamente!');
+    setTariffSaveMsg('¡Tarifas, planes de arriendo y horarios actualizados correctamente!');
     setTimeout(() => setTariffSaveMsg(null), 3500);
   };
 
@@ -375,6 +440,18 @@ export const SettingsAndUsers: React.FC = () => {
         >
           <Landmark className="w-4 h-4" />
           Parámetros Tributarios & Laborales
+        </button>
+
+        <button
+          onClick={() => setActiveTab('backup')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'backup'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
+              : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+          }`}
+        >
+          <Database className="w-4 h-4" />
+          Copias de Seguridad & Respaldo
         </button>
       </div>
 
@@ -926,12 +1003,216 @@ export const SettingsAndUsers: React.FC = () => {
               </div>
             </div>
 
+            {/* SECCIÓN PLANES DE ARRIENDO MENSUAL Y SEMANAL */}
+            <div className="border-t border-zinc-800 pt-5 space-y-4">
+              <div>
+                <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-indigo-400" />
+                  Planes de Arriendo (Tarifas, Horarios y Descripciones)
+                </h4>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Personalice los precios y horarios de los contratos de estacionamiento mensual y semanal.
+                </p>
+              </div>
+
+              {/* Plan 1: Diurno */}
+              <div className="bg-zinc-950/80 border border-amber-500/20 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex items-center gap-2 font-bold text-amber-300 text-xs">
+                  <Sun className="w-4 h-4" />
+                  <span>Plan Diurno (Comercial / Oficina)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Precio Mensual ($ CLP)</label>
+                    <input
+                      type="number"
+                      required
+                      value={dayPlanPrice}
+                      onChange={(e) => setDayPlanPrice(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 font-mono text-white font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Horario del Plan</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="08:00 a 20:00 hrs"
+                      value={dayPlanSchedule}
+                      onChange={(e) => setDayPlanSchedule(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Descripción / Condiciones</label>
+                  <input
+                    type="text"
+                    value={dayPlanDescription}
+                    onChange={(e) => setDayPlanDescription(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-zinc-300 text-[11px]"
+                    placeholder="Arriendo de uso comercial diurno"
+                  />
+                </div>
+              </div>
+
+              {/* Plan 2: Nocturno */}
+              <div className="bg-zinc-950/80 border border-indigo-500/20 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex items-center gap-2 font-bold text-indigo-300 text-xs">
+                  <Moon className="w-4 h-4" />
+                  <span>Plan Nocturno (Custodia Segura)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Precio Mensual ($ CLP)</label>
+                    <input
+                      type="number"
+                      required
+                      value={nightPlanPrice}
+                      onChange={(e) => setNightPlanPrice(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 font-mono text-white font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Horario del Plan</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="20:00 a 08:00 hrs"
+                      value={nightPlanSchedule}
+                      onChange={(e) => setNightPlanSchedule(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Descripción / Condiciones</label>
+                  <input
+                    type="text"
+                    value={nightPlanDescription}
+                    onChange={(e) => setNightPlanDescription(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-zinc-300 text-[11px]"
+                    placeholder="Custodia nocturna protegida con portón y cámaras"
+                  />
+                </div>
+              </div>
+
+              {/* Plan 3: 24/7 Completo */}
+              <div className="bg-zinc-950/80 border border-emerald-500/20 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex items-center gap-2 font-bold text-emerald-300 text-xs">
+                  <Clock className="w-4 h-4" />
+                  <span>Plan Completo 24/7 (Acceso Continuo)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Precio Mensual ($ CLP)</label>
+                    <input
+                      type="number"
+                      required
+                      value={fullPlanPrice}
+                      onChange={(e) => setFullPlanPrice(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 font-mono text-white font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Horario del Plan</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="24 Horas / Lunes a Domingo"
+                      value={fullPlanSchedule}
+                      onChange={(e) => setFullPlanSchedule(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Descripción / Condiciones</label>
+                  <input
+                    type="text"
+                    value={fullPlanDescription}
+                    onChange={(e) => setFullPlanDescription(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-zinc-300 text-[11px]"
+                    placeholder="Acceso ilimitado 24/7 sin restricción horaria"
+                  />
+                </div>
+              </div>
+
+              {/* Plan 4: Semanal */}
+              <div className="bg-zinc-950/80 border border-cyan-500/20 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex items-center gap-2 font-bold text-cyan-300 text-xs">
+                  <Calendar className="w-4 h-4" />
+                  <span>Plan Semanal (7 Días Continuos)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Precio Semanal ($ CLP)</label>
+                    <input
+                      type="number"
+                      required
+                      value={weeklyPlanPrice}
+                      onChange={(e) => setWeeklyPlanPrice(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 font-mono text-white font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Horario del Plan</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="7 Días Continuos (24 Horas)"
+                      value={weeklyPlanSchedule}
+                      onChange={(e) => setWeeklyPlanSchedule(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-zinc-400 text-[10px] font-semibold mb-1">Descripción / Condiciones</label>
+                  <input
+                    type="text"
+                    value={weeklyPlanDescription}
+                    onChange={(e) => setWeeklyPlanDescription(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2 text-zinc-300 text-[11px]"
+                    placeholder="Tarifa plana semanal para estadías temporales"
+                  />
+                </div>
+              </div>
+
+              {/* Horario General Garita */}
+              <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3.5 space-y-2">
+                <span className="font-bold text-zinc-300 text-xs block">
+                  Horario de Atención General de la Garita / Parking
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] mb-1">Hora de Apertura</label>
+                    <input
+                      type="time"
+                      value={operatingStart}
+                      onChange={(e) => setOperatingStart(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-2 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] mb-1">Hora de Cierre</label>
+                    <input
+                      type="time"
+                      value={operatingEnd}
+                      onChange={(e) => setOperatingEnd(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-2 text-white font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <button
               type="submit"
               className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
             >
               <Save className="w-4 h-4" />
-              Guardar Configuración de Tarifas
+              Guardar Tarifas, Planes y Horarios
             </button>
           </form>
         </div>
@@ -1176,6 +1457,340 @@ export const SettingsAndUsers: React.FC = () => {
               Guardar Tasas de Comisiones POS
             </button>
           </form>
+        </div>
+      )}
+
+      {/* TAB 7: BACKUP & DATA RECOVERY */}
+      {activeTab === 'backup' && (
+        <div className="space-y-6">
+          {/* Status Feedback Banner */}
+          {backupStatusMsg && (
+            <div
+              className={`p-4 rounded-xl text-xs font-semibold flex items-center gap-3 border ${
+                backupStatusMsg.type === 'success'
+                  ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                  : 'bg-rose-950/70 border-rose-500/50 text-rose-300'
+              }`}
+            >
+              {backupStatusMsg.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+              )}
+              <span>{backupStatusMsg.text}</span>
+            </div>
+          )}
+
+          {/* Assistant for "Mis datos se borraron, ¿qué hago?" */}
+          <div className="bg-gradient-to-r from-emerald-950/60 to-zinc-900 border border-emerald-500/40 rounded-2xl p-5 shadow-xl">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-bold border border-emerald-500/40">
+                  <Database className="w-3.5 h-3.5" />
+                  Centro de Recuperación & Respaldo
+                </div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  ¿Se te borraron los datos o cambiaste de equipo?
+                </h3>
+                <p className="text-xs text-zinc-300 max-w-2xl leading-relaxed">
+                  Tus datos en Bamo Garage SpA cuentan con triple capa de protección: sincronización en tiempo real con la nube Firestore, puntos de restauración automáticos locales y descargas de respaldo JSON.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2.5">
+                <button
+                  onClick={downloadBackupFile}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition"
+                >
+                  <Download className="w-4 h-4" />
+                  Descargar Copia (.JSON)
+                </button>
+
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-xl font-bold text-xs border border-zinc-700 flex items-center gap-2 transition"
+                >
+                  <Upload className="w-4 h-4 text-amber-400" />
+                  Restaurar desde Archivo (.JSON)
+                </button>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      try {
+                        const parsed = JSON.parse(event.target?.result as string);
+                        const res = restoreFromBackupData(parsed);
+                        if (res.success) {
+                          setBackupStatusMsg({ type: 'success', text: res.message });
+                        } else {
+                          setBackupStatusMsg({ type: 'error', text: res.message });
+                        }
+                      } catch (err: any) {
+                        setBackupStatusMsg({
+                          type: 'error',
+                          text: `El archivo seleccionado no es un respaldo JSON válido: ${err.message}`,
+                        });
+                      }
+                    };
+                    reader.readAsText(file);
+                    e.target.value = '';
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Cloud Synchronization Panel */}
+          <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                  <Cloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                    Sincronización en la Nube (Google Firebase Firestore)
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        cloudSyncStatus === 'connected'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : cloudSyncStatus === 'syncing'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      }`}
+                    >
+                      {cloudSyncStatus === 'connected' && '● Conectado & Sincronizado'}
+                      {cloudSyncStatus === 'syncing' && '● Sincronizando datos...'}
+                      {cloudSyncStatus === 'offline' && '● Sin conexión local'}
+                      {cloudSyncStatus === 'error' && '● Error de red'}
+                    </span>
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Base de datos centralizada de Bamo Garage SpA para que todos los dispositivos compartan vehículos, tickets y cajas en tiempo real.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                disabled={isSyncingCloud}
+                onClick={async () => {
+                  setIsSyncingCloud(true);
+                  const res = await forceCloudSync();
+                  setIsSyncingCloud(false);
+                  setBackupStatusMsg({
+                    type: res.success ? 'success' : 'error',
+                    text: res.message,
+                  });
+                }}
+                className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 border border-zinc-700 whitespace-nowrap self-start sm:self-auto"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                {isSyncingCloud ? 'Sincronizando...' : 'Forzar Sincronización Nube'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                <span className="text-zinc-500 block mb-1">Última Sincronización:</span>
+                <span className="font-semibold text-zinc-200">
+                  {lastCloudSyncTime ? lastCloudSyncTime.toLocaleTimeString('es-CL') : 'Al iniciar la sesión'}
+                </span>
+              </div>
+              <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                <span className="text-zinc-500 block mb-1">Identificador de Empresa:</span>
+                <span className="font-mono font-semibold text-amber-300">Bamo Garage SpA (78.084.649-6)</span>
+              </div>
+              <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                <span className="text-zinc-500 block mb-1">Documento Central:</span>
+                <span className="font-mono text-zinc-300 text-[11px]">garage_state/bamo_garage_main</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Automatic Restore Points (Local Snapshots) */}
+          <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                    Puntos de Restauración Automáticos (Historial Local)
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    El sistema registra automáticamente capturas de estado periódicas en la memoria del navegador para que puedas revertir a un momento anterior.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {autoSnapshots.length === 0 ? (
+              <div className="p-6 text-center text-xs text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                Los puntos de restauración automáticos se generarán conforme registres vehículos, lavados y ventas.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {autoSnapshots.map((snap, idx) => {
+                  const date = new Date(snap.timestamp);
+                  return (
+                    <div
+                      key={snap.id}
+                      className="p-3.5 bg-zinc-950/70 border border-zinc-800 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:border-zinc-700 transition"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold">
+                            #{idx + 1}
+                          </span>
+                          <span className="text-xs font-semibold text-white">
+                            {date.toLocaleDateString('es-CL', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })}{' '}
+                            - {date.toLocaleTimeString('es-CL')}
+                          </span>
+                          {idx === 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
+                              Más reciente
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-zinc-400">{snap.summary}</p>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `¿Deseas restaurar la información al estado del ${date.toLocaleDateString('es-CL')} ${date.toLocaleTimeString('es-CL')}?`
+                            )
+                          ) {
+                            const res = restoreFromSnapshot(snap.id);
+                            setBackupStatusMsg({
+                              type: res.success ? 'success' : 'error',
+                              text: res.message,
+                            });
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        Restaurar este punto
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Diagnostic & Education Guide */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5 space-y-4">
+            <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+              <HelpCircle className="w-4 h-4 text-cyan-400" />
+              Guía Rápida: ¿Por qué pueden desaparecer datos y cómo evitarlo?
+            </h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800 space-y-2">
+                <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                  <span>1. Limpieza de Cookies / Caché</span>
+                </div>
+                <p className="text-zinc-400 leading-relaxed">
+                  Si utilizas la opción de «Borrar datos de navegación» de Google Chrome o Safari, la memoria local del navegador se reinicia. Puedes solucionarlo al instante recargando la página o cargando tu copia de seguridad JSON.
+                </p>
+              </div>
+
+              <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800 space-y-2">
+                <div className="font-bold text-cyan-300 flex items-center gap-1.5">
+                  <span>2. Ventana de Modo Incógnito</span>
+                </div>
+                <p className="text-zinc-400 leading-relaxed">
+                  Las pestañas privadas no guardan información al cerrarse. Usa siempre una pestaña normal en el navegador del estacionamiento para mantener todo grabado permanentemente.
+                </p>
+              </div>
+
+              <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800 space-y-2">
+                <div className="font-bold text-emerald-300 flex items-center gap-1.5">
+                  <span>3. Respaldo Semanal Recomendado</span>
+                </div>
+                <p className="text-zinc-400 leading-relaxed">
+                  Te recomendamos hacer clic en <b>«Descargar Copia (.JSON)»</b> al finalizar la semana o cada cierre de mes para guardar un archivo seguro en tu computador o pendrive.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Danger Zone: Reset to Initial Data */}
+          <div className="bg-rose-950/20 border border-rose-900/40 rounded-2xl p-5 space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-bold text-rose-300 flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-400" />
+                  Restablecer a Valores de Fábrica
+                </h4>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Borra los registros creados y restablece la demostración con 10 puestos, servicios estándar y usuarios por defecto (PIN: 12345678).
+                </p>
+              </div>
+
+              {!showResetConfirm ? (
+                <button
+                  onClick={() => setShowResetConfirm(true)}
+                  className="px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-bold transition whitespace-nowrap"
+                >
+                  Restablecer Valores
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    maxLength={8}
+                    placeholder="PIN Admin (12345678)"
+                    value={resetConfirmPin}
+                    onChange={(e) => setResetConfirmPin(e.target.value)}
+                    className="w-36 bg-zinc-900 border border-rose-500/50 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      if (resetConfirmPin === '12345678' || resetConfirmPin === currentUser.pin) {
+                        resetToInitialData();
+                        setShowResetConfirm(false);
+                        setResetConfirmPin('');
+                        setBackupStatusMsg({
+                          type: 'success',
+                          text: 'Se han restablecido los valores iniciales de fábrica de Bamo Garage SpA.',
+                        });
+                      } else {
+                        alert('Clave PIN incorrecta para confirmar restablecimiento.');
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition"
+                  >
+                    Confirmar Reset
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowResetConfirm(false);
+                      setResetConfirmPin('');
+                    }}
+                    className="px-2.5 py-1.5 text-zinc-400 hover:text-white text-xs font-semibold"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1434,7 +2049,7 @@ export const SettingsAndUsers: React.FC = () => {
                   <label className="block font-semibold text-zinc-300 mb-1">Subcategoría</label>
                   <select
                     value={prodCategory}
-                    onChange={(e) => setProdCategory(e.target.value)}
+                    onChange={(e) => setProdCategory(e.target.value as AccessoryCategory)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2.5 text-white focus:border-amber-500 focus:outline-none"
                   >
                     {ACCESSORY_CATEGORIES.map((cat) => (

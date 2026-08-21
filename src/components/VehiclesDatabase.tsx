@@ -97,7 +97,8 @@ export const VehiclesDatabase: React.FC = () => {
     setVipCreditLimit(String(v.vipCreditLimit || 200000));
     setVipAccumulatedBalance(String(v.vipAccumulatedBalance || 0));
     setBehaviorRating(v.behaviorRating || 'bueno');
-    setBehaviorNotes(v.behaviorNotes || '');
+    const notesStr = typeof v.behaviorNotes === 'string' ? v.behaviorNotes : Array.isArray(v.behaviorNotes) ? v.behaviorNotes.map(n => typeof n === 'string' ? n : (n as any)?.comment || '').join('; ') : '';
+    setBehaviorNotes(notesStr);
     setIsModalOpen(true);
   };
 
@@ -167,14 +168,15 @@ export const VehiclesDatabase: React.FC = () => {
     if (behaviorFilter !== 'all' && (v.behaviorRating || 'bueno') !== behaviorFilter) {
       return false;
     }
-    const q = searchQuery.toLowerCase();
+    const q = (searchQuery || '').trim().toLowerCase();
+    const notesString = typeof v.behaviorNotes === 'string' ? v.behaviorNotes : Array.isArray(v.behaviorNotes) ? v.behaviorNotes.map(n => typeof n === 'string' ? n : (n as any)?.comment || '').join(' ') : '';
     return (
-      v.plate.toLowerCase().includes(q) ||
-      v.brand.toLowerCase().includes(q) ||
-      v.model.toLowerCase().includes(q) ||
+      (v.plate || '').toLowerCase().includes(q) ||
+      (v.brand || '').toLowerCase().includes(q) ||
+      (v.model || '').toLowerCase().includes(q) ||
       (v.clientName && v.clientName.toLowerCase().includes(q)) ||
       (v.clientRut && v.clientRut.toLowerCase().includes(q)) ||
-      (v.behaviorNotes && v.behaviorNotes.toLowerCase().includes(q))
+      notesString.toLowerCase().includes(q)
     );
   });
 
@@ -384,7 +386,13 @@ export const VehiclesDatabase: React.FC = () => {
                       {v.behaviorNotes && (
                         <div className="text-[11px] text-amber-300/90 flex items-start gap-1 max-w-xs">
                           <MessageSquare className="w-3 h-3 text-amber-400 flex-shrink-0 mt-0.5" />
-                          <span className="line-clamp-2">{v.behaviorNotes}</span>
+                          <span className="line-clamp-2">
+                            {typeof v.behaviorNotes === 'string'
+                              ? v.behaviorNotes
+                              : Array.isArray(v.behaviorNotes)
+                              ? v.behaviorNotes.map((n) => typeof n === 'string' ? n : (n as any)?.comment || '').join('; ')
+                              : ''}
+                          </span>
                         </div>
                       )}
                     </div>

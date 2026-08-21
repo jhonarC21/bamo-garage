@@ -42,8 +42,8 @@ export const PayrollManagement: React.FC = () => {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [empRut, setEmpRut] = useState('');
   const [empName, setEmpName] = useState('');
-  const [empRole, setEmpRole] = useState('lavador');
-  const [empContractType, setEmpContractType] = useState<ContractType>('indefinido');
+  const [empRole, setEmpRole] = useState<'lavador' | 'cajero' | 'operador' | 'administrador' | 'supervisor'>('lavador');
+  const [empContractType, setEmpContractType] = useState<'indefinido' | 'plazo_fijo'>('indefinido');
   const [empStartDate, setEmpStartDate] = useState(currentTime.toISOString().split('T')[0]);
   const [empBaseSalary, setEmpBaseSalary] = useState('550000');
   const [empAfp, setEmpAfp] = useState<AFPOption>('habitat');
@@ -754,7 +754,7 @@ export const PayrollManagement: React.FC = () => {
                   <label className="block text-zinc-300 font-semibold mb-1">Cargo / Puesto</label>
                   <select
                     value={empRole}
-                    onChange={(e) => setEmpRole(e.target.value)}
+                    onChange={(e) => setEmpRole(e.target.value as any)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2.5 text-zinc-200 focus:outline-none focus:border-purple-500"
                   >
                     <option value="lavador">Lavador / Operario Detailing</option>
@@ -768,7 +768,7 @@ export const PayrollManagement: React.FC = () => {
                   <label className="block text-zinc-300 font-semibold mb-1">Tipo de Contrato</label>
                   <select
                     value={empContractType}
-                    onChange={(e) => setEmpContractType(e.target.value as ContractType)}
+                    onChange={(e) => setEmpContractType(e.target.value as any)}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2.5 text-zinc-200 focus:outline-none focus:border-purple-500"
                   >
                     <option value="indefinido">Contrato Indefinido (AFC 0.6% / 2.4%)</option>

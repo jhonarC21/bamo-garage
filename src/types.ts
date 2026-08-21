@@ -51,7 +51,7 @@ export interface Vehicle {
   vipCreditLimit?: number; // Maximum credit limit for accumulated payments (e.g. 100.000 CLP)
   vipAccumulatedBalance?: number; // Current accumulated unpaid balance
   behaviorRating?: BehaviorRating;
-  behaviorNotes?: BehaviorNote[];
+  behaviorNotes?: (BehaviorNote | string)[] | string;
   lastVisit?: string;
   createdAt: string;
 }
@@ -83,6 +83,7 @@ export interface WashService {
 export interface WashOrder {
   id: string;
   ticketId?: string;
+  sessionId?: string;
   spotNumber?: number;
   plate: string;
   serviceId: string;
@@ -268,13 +269,22 @@ export interface ParkingSettings {
   valetParkingPrice?: number; // e.g. 2.000 CLP
   valetParkingEnabled?: boolean;
   weeklyContractPrice?: number; // e.g. 15.000 CLP
+  weeklyContractSchedule?: string; // e.g. "7 Días Continuos (24 Horas)"
+  weeklyContractDescription?: string; // e.g. "Tarifa plana semanal para estadías temporales"
   dayContractPrice: number; // 45.000 CLP
+  dayContractSchedule?: string; // e.g. "08:00 a 20:00 hrs"
+  dayContractDescription?: string; // e.g. "Arriendo de uso comercial diurno"
   nightContractPrice: number; // 35.000 CLP
+  nightContractSchedule?: string; // e.g. "20:00 a 08:00 hrs"
+  nightContractDescription?: string; // e.g. "Custodia nocturna segura con portón y cámaras"
   fullContractPrice: number; // 70.000 CLP
+  fullContractSchedule?: string; // e.g. "24 Horas / Lunes a Domingo"
+  fullContractDescription?: string; // e.g. "Acceso ilimitado 24/7 sin restricción horaria"
   operatingHoursStart: string; // "07:00"
   operatingHoursEnd: string; // "23:00"
   frequentThreshold: number; // 3 visits
   frequentDiscountPercent: number; // 0% or 10%
+  frequentDiscountPercentage?: number; // alias
   // POS Terminal Commission Fees
   posTuuDebitFeePercent: number; // e.g. 1.49 (%)
   posTuuCreditFeePercent: number; // e.g. 2.19 (%)
@@ -282,8 +292,11 @@ export interface ParkingSettings {
   posMercadoPagoCreditFeePercent: number; // e.g. 3.49 (%)
   // Accounting & Tax settings (Chile)
   ppmRatePercent: number; // e.g. 1.5%
+  ppmRateChile?: number; // alias
   ivaRatePercent: number; // 19%
+  ivaRateChile?: number; // alias
   honorariosRetentionPercent: number; // 13.75% / 14.5%
+  retencionHonorariosRateChile?: number; // alias
   minWageChile: number; // e.g. 500000 CLP
   expenseCategories: string[];
 }
@@ -311,7 +324,7 @@ export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   'otros',
 ];
 
-export type ExpenseDocumentType = 'boleta' | 'factura' | 'vale_caja' | 'transferencia' | 'otro';
+export type ExpenseDocumentType = 'boleta' | 'factura' | 'vale_caja' | 'transferencia' | 'boleta_honorarios' | 'otro';
 export type DocumentType = ExpenseDocumentType;
 export type PaymentSource = 'efectivo_caja' | 'cuenta_bancaria';
 
@@ -341,7 +354,9 @@ export interface CashRegisterOpeningRecord {
   date: string;
   openedAt: string;
   cashierName: string;
+  openedBy?: string; // alias
   initialCash: number;
+  initialOpeningCash?: number; // alias
   notes?: string;
   status: 'open' | 'closed';
 }
@@ -349,24 +364,32 @@ export interface CashRegisterOpeningRecord {
 export interface CashRegisterCloseRecord {
   id: string;
   date: string;
-  openedAt: string;
-  closedAt: string;
-  cashierName: string;
+  openedAt?: string;
+  closedAt?: string;
+  cashierName?: string;
+  closedBy?: string; // alias
   openingCash: number;
-  cashRevenue: number;
-  cardRevenue: number;
-  transferRevenue: number;
+  cashRevenue?: number;
+  cashIncomes?: number; // alias
+  cardRevenue?: number;
+  cardIncomes?: number; // alias
+  transferRevenue?: number;
+  transferIncomes?: number; // alias
   vipCreditRevenue?: number;
-  totalRevenue: number;
+  vipCreditIncomes?: number; // alias
+  totalRevenue?: number;
+  totalIncomes?: number; // alias
   cashExpenses: number;
   bankExpenses: number;
   totalExpenses: number;
-  expectedCashInDrawer: number;
-  actualCashCounted: number;
+  expectedCashInDrawer?: number;
+  theoreticalCashInDrawer?: number; // alias
+  actualCashCounted?: number;
+  actualCountedCash?: number; // alias
   difference: number; // actual - expected (0: cuadrado, >0: sobrante, <0: faltante)
   breakdown?: CashDenominationCount[];
   notes?: string;
-  status: 'closed';
+  status?: 'closed';
 }
 
 export type AFPName = 'habitat' | 'provida' | 'capital' | 'cuprum' | 'planvital' | 'modelo' | 'uno';
@@ -435,6 +458,7 @@ export interface PayrollSettlement {
   totalEmployerCost: number; // Costo Total Empleador
   
   paidAt: string;
+  createdAt?: string; // alias
   paymentMethod: PaymentMethod;
   status: 'draft' | 'paid';
 }
@@ -451,5 +475,12 @@ export interface AppUser {
   phone?: string;
   active: boolean;
   createdAt: string;
+}
+
+export interface AutoSnapshot {
+  id: string;
+  timestamp: string;
+  summary: string;
+  data: any;
 }
 

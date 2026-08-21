@@ -25,6 +25,7 @@ interface CheckInModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialSpotNumber?: number;
+  initialPlate?: string;
   onSuccess: (spotNumber: number) => void;
 }
 
@@ -32,6 +33,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
   isOpen,
   onClose,
   initialSpotNumber,
+  initialPlate,
   onSuccess,
 }) => {
   const { spots, washServices, getVehicleByPlate, checkInVehicle, settings, currentTime } = useParking();
@@ -44,7 +46,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
     initialSpotNumber || (availableSpots[0]?.number ?? 1)
   );
 
-  const [plate, setPlate] = useState('');
+  const [plate, setPlate] = useState(initialPlate || '');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [color, setColor] = useState('');

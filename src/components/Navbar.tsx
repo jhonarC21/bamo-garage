@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Car,
   Clock,
@@ -24,9 +24,11 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
+  Bluetooth,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatTimeOnly } from '../utils/pricing';
+import { BluetoothScannerModal } from './BluetoothScannerModal';
 
 interface NavbarProps {
   activeTab: string;
@@ -49,12 +51,13 @@ export const Navbar: React.FC<NavbarProps> = ({
     simulatedMinutesAdded,
     advanceTime,
     resetTime,
-    resetToInitialData,
     currentUser,
     lockSystem,
     settings,
     cloudSyncStatus,
   } = useParking();
+
+  const [isBluetoothModalOpen, setIsBluetoothModalOpen] = useState(false);
 
   const occupiedCount = spots.filter((s) => s.status === 'occupied').length;
   const reservedCount = spots.filter((s) => s.status === 'reserved_monthly').length;
@@ -205,16 +208,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <button
-            id="btn-reset-demo"
-            onClick={() => {
-              if (window.confirm('¿Deseas restablecer el sistema a cero (todos los puestos disponibles y registros limpios)?')) {
-                resetToInitialData();
-              }
-            }}
-            className="text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded-lg hover:bg-zinc-850 border border-transparent hover:border-zinc-750 transition text-[11px]"
-            title="Restablecer todos los puestos a disponibles y limpiar transacciones"
+            id="btn-bluetooth-scanner"
+            type="button"
+            onClick={() => setIsBluetoothModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/60 hover:bg-cyan-900/70 text-cyan-300 hover:text-cyan-100 border border-cyan-500/40 rounded-lg transition text-[11px] font-semibold shadow-sm"
+            title="Configurar o conectar Lector Láser Bluetooth / HID"
           >
-            Restablecer a Cero
+            <Bluetooth className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Lector Láser BT</span>
           </button>
         </div>
       </div>
@@ -329,6 +330,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </nav>
       </div>
+
+      <BluetoothScannerModal
+        isOpen={isBluetoothModalOpen}
+        onClose={() => setIsBluetoothModalOpen(false)}
+      />
     </header>
   );
 };

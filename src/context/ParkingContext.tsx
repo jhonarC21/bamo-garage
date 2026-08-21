@@ -23,6 +23,7 @@ import {
   CashRegisterOpeningRecord,
   CashRegisterCloseRecord,
   POSTerminalProvider,
+  AutoSnapshot,
 } from '../types';
 import {
   INITIAL_SPOTS,
@@ -203,6 +204,14 @@ interface ParkingContextType {
   resetTime: () => void;
   resetToInitialData: () => void;
   getSpotSession: (spotNumber: number) => ParkingSession | undefined;
+  
+  // Backup & Recovery
+  autoSnapshots: AutoSnapshot[];
+  exportBackupData: () => any;
+  downloadBackupFile: () => void;
+  restoreFromBackupData: (backupObj: any) => { success: boolean; message: string };
+  restoreFromSnapshot: (snapshotId: string) => { success: boolean; message: string };
+  forceCloudSync: () => Promise<{ success: boolean; message: string }>;
 }
 
 const ParkingContext = createContext<ParkingContextType | undefined>(undefined);
@@ -226,6 +235,7 @@ const STORAGE_KEYS = {
   CASH_CLOSURES: 'parking_app_cash_closures_v3_prod',
   OPENING_CASH: 'parking_app_opening_cash_v3_prod',
   CASH_SHIFT: 'parking_app_cash_shift_v3_prod',
+  SNAPSHOTS: 'bamo_auto_snapshots_history_v1',
 };
 
 export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -351,6 +361,16 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [payrollSettlements, setPayrollSettlements] = useState<PayrollSettlement[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PAYROLL);
     return saved ? JSON.parse(saved) : [];
+  });
+
+  // Auto Snapshots for instant recovery
+  const [autoSnapshots, setAutoSnapshots] = useState<AutoSnapshot[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SNAPSHOTS);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   // Cloud Firestore Sync State
@@ -1799,6 +1819,149 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setSimulatedMinutesAdded(0);
   };
 
+  const exportBackupData = () => {
+    return {
+      version: '3.0',
+      exportDate: new Date().toISOString(),
+      system: 'Bamo Garage SpA - Sistema Integral de Estacionamiento',
+      rut: '78.084.649-6',
+      data: {
+        spots,
+        vehicles,
+        washServices,
+        washOrders,
+        accessoryProducts,
+        accessorySales,
+        monthlyContracts,
+        completedSessions,
+        settings,
+        users,
+        expenses,
+        openingCash,
+        cashRegisterClosures,
+        employees,
+        payrollSettlements,
+      },
+    };
+  };
+
+  const downloadBackupFile = () => {
+    try {
+      const backup = exportBackupData();
+      const jsonStr = JSON.stringify(backup, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const dateStr = new Date().toISOString().split('T')[0];
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bamo_garage_respaldo_${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.warn('Error downloading backup file:', e);
+    }
+  };
+
+  const restoreFromBackupData = (backupObj: any): { success: boolean; message: string } => {
+    try {
+      if (!backupObj) throw new Error('Archivo o datos de respaldo vacíos.');
+      const d = backupObj.data || backupObj;
+
+      if (Array.isArray(d.spots)) setSpots(d.spots);
+      if (Array.isArray(d.vehicles)) setVehicles(d.vehicles);
+      if (Array.isArray(d.washServices)) setWashServices(d.washServices);
+      if (Array.isArray(d.washOrders)) setWashOrders(d.washOrders);
+      if (Array.isArray(d.accessoryProducts)) setAccessoryProducts(d.accessoryProducts);
+      if (Array.isArray(d.accessorySales)) setAccessorySales(d.accessorySales);
+      if (Array.isArray(d.monthlyContracts)) setMonthlyContracts(d.monthlyContracts);
+      if (Array.isArray(d.completedSessions)) setCompletedSessions(d.completedSessions);
+      if (d.settings) setSettings((prev) => ({ ...prev, ...d.settings }));
+      if (Array.isArray(d.users) && d.users.length > 0) setUsers(d.users);
+      if (Array.isArray(d.expenses)) setExpenses(d.expenses);
+      if (typeof d.openingCash === 'number') setOpeningCash(d.openingCash);
+      if (Array.isArray(d.cashRegisterClosures)) setCashRegisterClosures(d.cashRegisterClosures);
+      if (Array.isArray(d.employees)) setEmployees(d.employees);
+      if (Array.isArray(d.payrollSettlements)) setPayrollSettlements(d.payrollSettlements);
+
+      // Force push directly to Firestore
+      try {
+        const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+        setDoc(
+          liveDocRef,
+          sanitizeForFirestore({
+            spots: d.spots || spots,
+            vehicles: d.vehicles || vehicles,
+            washServices: d.washServices || washServices,
+            washOrders: d.washOrders || washOrders,
+            accessoryProducts: d.accessoryProducts || accessoryProducts,
+            accessorySales: d.accessorySales || accessorySales,
+            monthlyContracts: d.monthlyContracts || monthlyContracts,
+            completedSessions: d.completedSessions || completedSessions,
+            settings: d.settings || settings,
+            users: d.users || users,
+            expenses: d.expenses || expenses,
+            openingCash: typeof d.openingCash === 'number' ? d.openingCash : openingCash,
+            cashRegisterClosures: d.cashRegisterClosures || cashRegisterClosures,
+            employees: d.employees || employees,
+            payrollSettlements: d.payrollSettlements || payrollSettlements,
+            lastUpdatedAt: new Date().toISOString(),
+          }),
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn('Error syncing restored data to Firestore:', err);
+      }
+
+      return { success: true, message: '¡Datos restaurados correctamente con éxito!' };
+    } catch (err: any) {
+      return { success: false, message: `Error al restaurar: ${err.message}` };
+    }
+  };
+
+  const restoreFromSnapshot = (snapshotId: string): { success: boolean; message: string } => {
+    const target = autoSnapshots.find((s) => s.id === snapshotId);
+    if (!target) return { success: false, message: 'Punto de restauración no encontrado.' };
+    return restoreFromBackupData(target.data);
+  };
+
+  const forceCloudSync = async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      setCloudSyncStatus('syncing');
+      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+      await setDoc(
+        liveDocRef,
+        sanitizeForFirestore({
+          spots,
+          vehicles,
+          washServices,
+          washOrders,
+          accessoryProducts,
+          accessorySales,
+          monthlyContracts,
+          completedSessions,
+          settings,
+          users,
+          expenses,
+          openingCash,
+          cashRegisterClosures,
+          employees,
+          payrollSettlements,
+          lastUpdatedAt: new Date().toISOString(),
+        }),
+        { merge: true }
+      );
+      setIsCloudSynced(true);
+      setCloudSyncStatus('connected');
+      setLastCloudSyncTime(new Date());
+      return { success: true, message: 'Sincronización con la nube completada exitosamente.' };
+    } catch (err: any) {
+      setCloudSyncStatus('error');
+      return { success: false, message: `Error al sincronizar con la nube: ${err.message}` };
+    }
+  };
+
   const resetToInitialData = () => {
     setSpots(INITIAL_SPOTS);
     setVehicles(INITIAL_VEHICLES);
@@ -1930,6 +2093,12 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         resetTime,
         resetToInitialData,
         getSpotSession,
+        autoSnapshots,
+        exportBackupData,
+        downloadBackupFile,
+        restoreFromBackupData,
+        restoreFromSnapshot,
+        forceCloudSync,
       }}
     >
       {children}
