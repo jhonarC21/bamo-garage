@@ -657,13 +657,20 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const saveVehicle = (newOrUpdated: Vehicle) => {
+    const cleanTargetPlate = newOrUpdated.plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     setVehicles((prev) => {
       const idx = prev.findIndex(
-        (v) => v.plate.toUpperCase() === newOrUpdated.plate.toUpperCase()
+        (v) => v.plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') === cleanTargetPlate
       );
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = newOrUpdated;
+        next[idx] = {
+          ...prev[idx],
+          ...newOrUpdated,
+          visitsCount: newOrUpdated.visitsCount || prev[idx].visitsCount || 1,
+          totalSpent: newOrUpdated.totalSpent ?? prev[idx].totalSpent ?? 0,
+          createdAt: prev[idx].createdAt || newOrUpdated.createdAt,
+        };
         return next;
       }
       return [newOrUpdated, ...prev];

@@ -64,7 +64,7 @@ export const VehiclesDatabase: React.FC = () => {
 
   // Duplicate vehicle detection in real-time
   const cleanInputPlate = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const existingMatch = cleanInputPlate.length >= 3
+  const existingMatch = cleanInputPlate.length >= 2
     ? vehicles.find(
         (v) =>
           v.plate.replace(/[^A-Z0-9]/g, '').toUpperCase() === cleanInputPlate &&
