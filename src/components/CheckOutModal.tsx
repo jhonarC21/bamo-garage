@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   AlertCircle,
   Key,
+  Crown,
+  Info,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, formatCLP, formatDateTime, calculatePOSFee } from '../utils/pricing';
@@ -33,7 +35,7 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
   onClose,
   spotNumber,
 }) => {
-  const { getSpotSession, checkOutVehicle, currentTime, settings } = useParking();
+  const { getSpotSession, checkOutVehicle, currentTime, settings, getVehicleByPlate } = useParking();
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta_debito');
   const [posProvider, setPosProvider] = useState<POSTerminalProvider>('tuu');
@@ -48,6 +50,9 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
 
   const session = getSpotSession(spotNumber);
   if (!session && !isSuccessReceipt) return null;
+
+  const vehicle = session?.plate ? getVehicleByPlate(session.plate) : undefined;
+  const isVipClient = !!vehicle?.isVIP;
 
   const pricing = session
     ? calculateParkingFee(
@@ -308,18 +313,31 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
 
             {/* Payment Method Selector */}
             <div className="space-y-2">
-              <label className="block text-zinc-300 font-semibold">
-                Método de Pago *
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-zinc-300 font-semibold">
+                  Método de Pago *
+                </label>
+                {isVipClient && (
+                  <span className="bg-yellow-950/80 text-yellow-300 border border-yellow-500/60 px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1">
+                    <Crown className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                    Cliente VIP Habilitado para Crédito Semanal
+                  </span>
+                )}
+              </div>
+
+              <div className={`grid gap-2 ${isVipClient ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'}`}>
                 {[
                   { id: 'tarjeta_debito', label: 'Débito', icon: CreditCard },
                   { id: 'tarjeta_credito', label: 'Crédito', icon: CreditCard },
                   { id: 'efectivo', label: 'Efectivo', icon: Banknote },
                   { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
+                  ...(isVipClient || session.isVIP
+                    ? [{ id: 'cuenta_corriente_vip', label: 'Crédito VIP', icon: Crown, isVipHighlight: true }]
+                    : []),
                 ].map((m) => {
                   const Icon = m.icon;
                   const selected = paymentMethod === m.id;
+                  const isVipBtn = (m as any).isVipHighlight;
                   return (
                     <button
                       key={m.id}
@@ -327,17 +345,68 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                       onClick={() => setPaymentMethod(m.id as PaymentMethod)}
                       className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 text-center transition ${
                         selected
-                          ? 'bg-indigo-600 border-indigo-400 text-white font-bold shadow-md shadow-indigo-600/30'
+                          ? isVipBtn
+                            ? 'bg-yellow-600 border-yellow-400 text-black font-extrabold shadow-md shadow-yellow-600/40'
+                            : 'bg-indigo-600 border-indigo-400 text-white font-bold shadow-md shadow-indigo-600/30'
+                          : isVipBtn
+                          ? 'bg-yellow-950/40 border-yellow-700/60 text-yellow-300 hover:bg-yellow-900/60'
                           : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-850'
                       }`}
                     >
-                      <Icon className="w-4 h-4" />
+                      <Icon className={`w-4 h-4 ${selected && isVipBtn ? 'text-black' : isVipBtn ? 'text-yellow-400' : ''}`} />
                       <span className="text-[11px]">{m.label}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
+
+            {/* VIP ACCUMULATED CREDIT (CUENTA POR COBRAR) BANNER */}
+            {paymentMethod === 'cuenta_corriente_vip' && (
+              <div className="bg-[#18150A] border-2 border-yellow-500/60 rounded-xl p-4 space-y-3 shadow-lg shadow-yellow-950/40">
+                <div className="flex items-center justify-between border-b border-yellow-500/30 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                    <span className="font-bold text-xs text-yellow-300 uppercase tracking-wide">
+                      Cargo a Cuenta Corriente VIP (Cuenta por Cobrar)
+                    </span>
+                  </div>
+                  <span className="text-[10px] bg-yellow-500/20 text-yellow-300 font-bold px-2 py-0.5 rounded-full border border-yellow-400/40">
+                    A Crédito Semanal
+                  </span>
+                </div>
+
+                <div className="bg-yellow-950/40 border border-yellow-600/30 rounded-lg p-3 text-[11.5px] text-yellow-200/90 leading-relaxed flex items-start gap-2">
+                  <Info className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Aviso Contable:</strong> El cliente acumula sus consumos y no pagará al salir hoy. El monto de{' '}
+                    <strong className="text-white font-mono">{formatCLP(totalAmount)}</strong> se registrará como{' '}
+                    <strong className="text-yellow-300">Cuenta por Cobrar</strong> en su ficha VIP.
+                    <p className="mt-1 text-[10.5px] text-yellow-300/80">
+                      🚫 <em>Este monto <strong>NO sumará a la caja diaria ni al efectivo del día</strong> hasta que el cliente efectúe el pago correspondiente.</em>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-950/90 rounded-xl p-3 border border-yellow-900/40 text-xs space-y-1.5 font-mono">
+                  <div className="flex justify-between text-zinc-400 text-[11px]">
+                    <span>Saldo Deudor Anterior:</span>
+                    <span className="text-zinc-200">{formatCLP(vehicle?.vipAccumulatedBalance || 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-yellow-300 text-[11px]">
+                    <span>Cargo por Esta Estadía:</span>
+                    <span className="font-bold">+{formatCLP(totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1.5 border-t border-zinc-800 text-yellow-400 font-extrabold text-xs">
+                    <span>Nuevo Saldo Total por Cobrar:</span>
+                    <span className="text-sm">{formatCLP((vehicle?.vipAccumulatedBalance || 0) + totalAmount)}</span>
+                  </div>
+                  <div className="text-[10px] text-zinc-500 font-sans text-right">
+                    Límite de crédito disponible: {formatCLP(vehicle?.vipCreditLimit || 200000)}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* POS TERMINAL & AUTHORIZATION CODE REQUIRED FOR DEBIT / CREDIT */}
             {isCardPayment && (
@@ -587,23 +656,48 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                 className={`px-5 py-2 text-white rounded-lg font-bold shadow-lg transition active:scale-95 flex items-center gap-1.5 border ${
                   (isCardPayment && !isPosAuthValid) || (paymentMethod === 'transferencia' && !isTransferValid)
                     ? 'bg-zinc-800 text-zinc-500 border-zinc-700 cursor-not-allowed opacity-60'
+                    : paymentMethod === 'cuenta_corriente_vip'
+                    ? 'bg-yellow-500 hover:bg-yellow-400 text-black shadow-yellow-500/30 border-yellow-300'
                     : 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30 border-rose-400/30'
                 }`}
               >
-                <CheckCircle2 className="w-4 h-4" />
-                Registrar Pago & Liberar Puesto #{spotNumber}
+                {paymentMethod === 'cuenta_corriente_vip' ? (
+                  <>
+                    <Crown className="w-4 h-4 text-black fill-black" />
+                    Confirmar Salida a Crédito (Cargar a Cuenta por Cobrar VIP)
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Registrar Pago & Liberar Puesto #{spotNumber}
+                  </>
+                )}
               </button>
             </div>
           </div>
         ) : isSuccessReceipt && completedData ? (
           /* RECEIPT / TICKET VIEW (58MM THERMAL PRINTER FORMATTED) */
           <div className="p-6 space-y-4 text-xs flex flex-col items-center">
-            <div className="w-full bg-emerald-950/60 border border-emerald-800/80 rounded-xl p-3 flex items-center gap-2.5 text-emerald-300">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div className={`w-full rounded-xl p-3 flex items-center gap-2.5 ${
+              completedData.paymentMethod === 'cuenta_corriente_vip'
+                ? 'bg-yellow-950/60 border border-yellow-600/80 text-yellow-200'
+                : 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
+            }`}>
+              {completedData.paymentMethod === 'cuenta_corriente_vip' ? (
+                <Crown className="w-5 h-5 text-yellow-400 shrink-0 fill-yellow-400" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              )}
               <div>
-                <div className="font-bold">¡Pago Procesado Exitosamente!</div>
-                <div className="text-[11px] text-emerald-400/80">
-                  El Puesto #{completedData.spotNumber} ha sido liberado y registrado en caja.
+                <div className="font-bold">
+                  {completedData.paymentMethod === 'cuenta_corriente_vip'
+                    ? '¡Salida a Crédito VIP Registrada!'
+                    : '¡Pago Procesado Exitosamente!'}
+                </div>
+                <div className="text-[11px] opacity-90">
+                  {completedData.paymentMethod === 'cuenta_corriente_vip'
+                    ? `Puesto #${completedData.spotNumber} liberado. Monto cargado como Cuenta por Cobrar (No ingresa a caja diaria).`
+                    : `El Puesto #${completedData.spotNumber} ha sido liberado y registrado en caja.`}
                 </div>
               </div>
             </div>
@@ -629,7 +723,9 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                   {settings.siiOffice || 'SII Calama'} • Cel: {settings.phone || '+56993939952'}
                 </div>
                 <div className="text-[10px] font-black text-black pt-1 border-t border-dotted border-zinc-600 mt-1">
-                  *** COMPROBANTE DE PAGO ***
+                  {completedData.paymentMethod === 'cuenta_corriente_vip'
+                    ? '*** CUENTA POR COBRAR VIP ***'
+                    : '*** COMPROBANTE DE PAGO ***'}
                 </div>
                 <div className="text-[9px] text-zinc-600">FORMATO TÉRMICO 58MM</div>
               </div>
@@ -707,13 +803,25 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
               {/* Total & Payment Method */}
               <div className="space-y-0.5 pt-0.5">
                 <div className="flex justify-between items-center text-xs font-black">
-                  <span>TOTAL COBRADO:</span>
+                  <span>{completedData.paymentMethod === 'cuenta_corriente_vip' ? 'TOTAL CARGADO A CRÉDITO:' : 'TOTAL COBRADO:'}</span>
                   <span>{formatCLP(completedData.totalAmount)}</span>
                 </div>
                 <div className="flex justify-between text-[9.5px]">
-                  <span>FORMA DE PAGO:</span>
-                  <span className="font-black uppercase">{completedData.paymentMethod?.replace('_', ' ')}</span>
+                  <span>MODALIDAD:</span>
+                  <span className="font-black uppercase">
+                    {completedData.paymentMethod === 'cuenta_corriente_vip'
+                      ? 'CUENTA CORRIENTE VIP (POR COBRAR)'
+                      : completedData.paymentMethod?.replace('_', ' ')}
+                  </span>
                 </div>
+
+                {completedData.paymentMethod === 'cuenta_corriente_vip' && (
+                  <div className="border-t border-dotted border-zinc-600 pt-1 text-[9px] text-zinc-800 space-y-0.5">
+                    <div className="font-bold text-black">ESTADO: PENDIENTE DE PAGO SEMANAL</div>
+                    <div>* Monto acumulado como Cuenta por Cobrar</div>
+                    <div>* No sumado a recaudación de caja diaria</div>
+                  </div>
+                )}
 
                 {/* Fiscal references */}
                 {completedData.siiBoletaNumber && (
