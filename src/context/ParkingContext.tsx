@@ -1529,8 +1529,30 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
-  const payVIPAccumulatedBalance = (plateOrRut: string, amount: number, paymentMethod: PaymentMethod) => {
+  const payVIPAccumulatedBalance = (
+    plateOrRut: string,
+    amount: number,
+    paymentMethod: PaymentMethod,
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
+  ) => {
     const clean = plateOrRut.trim().toUpperCase();
+    const newRecord: VIPPaymentRecord = {
+      id: `vip_pay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      date: currentTime.toISOString(),
+      plateOrRut: clean,
+      amount,
+      paymentMethod,
+      posProvider: posInfo?.provider,
+      authorizationCode: posInfo?.authorizationCode,
+      siiBoletaNumber: paymentMethod === 'efectivo' ? siiBoletaNumber?.trim() : undefined,
+      transferVoucherNumber: paymentMethod === 'transferencia' ? transferVoucherNumber?.trim() : undefined,
+      isReconciled: false,
+      reconciliationStatus: 'pending',
+    };
+    setVipPaymentRecords((prev) => [newRecord, ...prev]);
+
     setVehicles((prev) =>
       prev.map((v) => {
         const matchPlate = v.plate.toUpperCase() === clean;
@@ -1545,6 +1567,104 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return v;
       })
     );
+  };
+
+  // --- Administrator Reconciliation Audit ---
+  const reconcileTransaction = (
+    id: string,
+    type: 'parking' | 'wash' | 'accessory' | 'contract' | 'vip_payment',
+    status: ReconciliationStatus,
+    notes?: string
+  ) => {
+    const nowIso = currentTime.toISOString();
+    const adminName = currentUser.name || 'Administrador';
+
+    if (type === 'parking') {
+      setCompletedSessions((prev) =>
+        prev.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                isReconciled: status === 'verified',
+                reconciliationStatus: status,
+                reconciledAt: nowIso,
+                reconciledBy: adminName,
+                reconciliationNotes: notes !== undefined ? notes : s.reconciliationNotes,
+              }
+            : s
+        )
+      );
+    } else if (type === 'wash') {
+      setWashOrders((prev) =>
+        prev.map((w) =>
+          w.id === id
+            ? {
+                ...w,
+                isReconciled: status === 'verified',
+                reconciliationStatus: status,
+                reconciledAt: nowIso,
+                reconciledBy: adminName,
+                reconciliationNotes: notes !== undefined ? notes : w.reconciliationNotes,
+              }
+            : w
+        )
+      );
+    } else if (type === 'accessory') {
+      setAccessorySales((prev) =>
+        prev.map((a) =>
+          a.id === id
+            ? {
+                ...a,
+                isReconciled: status === 'verified',
+                reconciliationStatus: status,
+                reconciledAt: nowIso,
+                reconciledBy: adminName,
+                reconciliationNotes: notes !== undefined ? notes : a.reconciliationNotes,
+              }
+            : a
+        )
+      );
+    } else if (type === 'contract') {
+      setMonthlyContracts((prev) =>
+        prev.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                isReconciled: status === 'verified',
+                reconciliationStatus: status,
+                reconciledAt: nowIso,
+                reconciledBy: adminName,
+                reconciliationNotes: notes !== undefined ? notes : c.reconciliationNotes,
+              }
+            : c
+        )
+      );
+    } else if (type === 'vip_payment') {
+      setVipPaymentRecords((prev) =>
+        prev.map((v) =>
+          v.id === id
+            ? {
+                ...v,
+                isReconciled: status === 'verified',
+                reconciliationStatus: status,
+                reconciledAt: nowIso,
+                reconciledBy: adminName,
+                reconciliationNotes: notes !== undefined ? notes : v.reconciliationNotes,
+              }
+            : v
+        )
+      );
+    }
+  };
+
+  const batchReconcileTransactions = (
+    items: { id: string; type: string }[],
+    status: ReconciliationStatus,
+    notes?: string
+  ) => {
+    items.forEach((item) => {
+      reconcileTransaction(item.id, item.type as any, status, notes);
+    });
   };
 
   // --- Users & 8-Digit PIN Management ---
@@ -2134,7 +2254,10 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateMonthlyContract,
         deleteMonthlyContract,
         markClientVIP,
+        vipPaymentRecords,
         payVIPAccumulatedBalance,
+        reconcileTransaction,
+        batchReconcileTransactions,
         saveVehicle,
         getVehicleByPlate,
         advanceTime,

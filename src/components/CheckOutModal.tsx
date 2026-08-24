@@ -38,6 +38,8 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta_debito');
   const [posProvider, setPosProvider] = useState<POSTerminalProvider>('tuu');
   const [authorizationCode, setAuthorizationCode] = useState<string>('');
+  const [siiBoletaNumber, setSiiBoletaNumber] = useState<string>('');
+  const [transferVoucherNumber, setTransferVoucherNumber] = useState<string>('');
   const [cashGiven, setCashGiven] = useState<string>('');
   const [isSuccessReceipt, setIsSuccessReceipt] = useState(false);
   const [completedData, setCompletedData] = useState<any>(null);
@@ -73,9 +75,11 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
     : { feePercent: 0, feeAmount: 0, netAmount: totalAmount };
 
   const isPosAuthValid = !isCardPayment || authorizationCode.trim().length >= 3;
+  const isTransferValid = paymentMethod !== 'transferencia' || transferVoucherNumber.trim().length >= 3;
 
   const handleConfirmCheckout = () => {
     if (isCardPayment && !isPosAuthValid) return;
+    if (paymentMethod === 'transferencia' && !isTransferValid) return;
 
     const result = checkOutVehicle(
       spotNumber,
@@ -85,7 +89,10 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
             provider: posProvider,
             authorizationCode: authorizationCode.trim(),
           }
-        : undefined
+        : undefined,
+      undefined,
+      siiBoletaNumber.trim() || undefined,
+      transferVoucherNumber.trim() || undefined
     );
 
     if (result) {
@@ -453,31 +460,114 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
               </div>
             )}
 
-            {/* Cash calculator helper if cash is selected */}
+            {/* CASH PAYMENT - SII BOLETA NUMBER & CASH GIVEN */}
             {paymentMethod === 'efectivo' && (
-              <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 grid grid-cols-2 gap-3 items-center">
-                <div>
-                  <label className="block text-zinc-400 text-[10px] mb-1">
-                    Monto Recibido en Efectivo:
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="$20.000"
-                    value={cashGiven}
-                    onChange={(e) => setCashGiven(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-                <div className="text-right">
-                  <span className="text-zinc-400 text-[10px] block">Vuelto a Entregar:</span>
-                  <span
-                    className={`font-mono font-bold text-base ${
-                      cashNumber >= totalAmount ? 'text-emerald-400' : 'text-zinc-500'
-                    }`}
-                  >
-                    {cashNumber >= totalAmount ? formatCLP(cashChange) : '$0'}
+              <div className="bg-[#121526] border-2 border-emerald-500/40 rounded-xl p-4 space-y-3 shadow-lg shadow-emerald-950/40">
+                <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Banknote className="w-4 h-4 text-emerald-400" />
+                    <span className="font-bold text-xs text-emerald-200 uppercase tracking-wide">
+                      Pago en Efectivo & Boleta Electrónica SII
+                    </span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-semibold px-2 py-0.5 rounded-full border border-emerald-400/30">
+                    Caja Física
                   </span>
                 </div>
+
+                {/* SII Boleta Input */}
+                <div>
+                  <label className="block text-zinc-200 text-[11px] font-bold mb-1 flex items-center justify-between">
+                    <span>N° de Boleta Emitida SII (Requerido para control tributario):</span>
+                    <span className="text-[10px] text-zinc-400 font-mono">
+                      {siiBoletaNumber.trim() ? '✓ Ingresado' : 'Opcional / Sugerido'}
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: B-10492 o 10492"
+                    value={siiBoletaNumber}
+                    onChange={(e) => setSiiBoletaNumber(e.target.value.toUpperCase())}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white font-mono font-bold text-sm tracking-wider focus:outline-none focus:border-emerald-400"
+                  />
+                  <p className="text-[10px] text-zinc-400 mt-1">
+                    Permite conciliar el ticket con el folio de boleta emitido en la máquina/sistema del SII.
+                  </p>
+                </div>
+
+                {/* Cash given & change */}
+                <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-3 grid grid-cols-2 gap-3 items-center">
+                  <div>
+                    <label className="block text-zinc-400 text-[10px] mb-1">
+                      Monto Recibido en Efectivo:
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="$20.000"
+                      value={cashGiven}
+                      onChange={(e) => setCashGiven(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div className="text-right">
+                    <span className="text-zinc-400 text-[10px] block">Vuelto a Entregar:</span>
+                    <span
+                      className={`font-mono font-bold text-base ${
+                        cashNumber >= totalAmount ? 'text-emerald-400' : 'text-zinc-500'
+                      }`}
+                    >
+                      {cashNumber >= totalAmount ? formatCLP(cashChange) : '$0'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* BANK TRANSFER - VOUCHER / TRANSACTION NUMBER */}
+            {paymentMethod === 'transferencia' && (
+              <div className="bg-[#121526] border-2 border-indigo-500/40 rounded-xl p-4 space-y-3 shadow-lg shadow-indigo-950/40">
+                <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-indigo-400" />
+                    <span className="font-bold text-xs text-indigo-200 uppercase tracking-wide">
+                      Transferencia Bancaria Electrónica
+                    </span>
+                  </div>
+                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-semibold px-2 py-0.5 rounded-full border border-indigo-400/30">
+                    Comprobante
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-zinc-200 text-[11px] font-bold mb-1 flex items-center justify-between">
+                    <span>N° de Transacción / Comprobante Bancario: *</span>
+                    <span className="text-[10px] text-amber-400 font-mono">
+                      {transferVoucherNumber.trim().length === 0 ? 'Requerido' : '✓ OK'}
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: TRX-982401 o 8492018"
+                    value={transferVoucherNumber}
+                    onChange={(e) => setTransferVoucherNumber(e.target.value.toUpperCase())}
+                    className={`w-full bg-zinc-950 border rounded-xl px-3 py-2 text-white font-mono font-bold text-sm tracking-wider focus:outline-none ${
+                      transferVoucherNumber.trim().length > 0
+                        ? 'border-emerald-500/80 focus:border-emerald-400'
+                        : 'border-amber-500/80 focus:border-amber-400'
+                    }`}
+                  />
+                  <p className="text-[10px] text-zinc-400 mt-1">
+                    Ingrese los dígitos del comprobante recibido en la cuenta bancaria para la auditoría y conciliación.
+                  </p>
+                </div>
+
+                {!isTransferValid && (
+                  <div className="bg-amber-950/60 border border-amber-500/60 text-amber-300 rounded-lg p-2 text-[11px] flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Debe ingresar el número de comprobante o transacción bancaria para continuar.</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -492,10 +582,10 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
               </button>
               <button
                 id="btn-confirm-checkout"
-                disabled={isCardPayment && !isPosAuthValid}
+                disabled={(isCardPayment && !isPosAuthValid) || (paymentMethod === 'transferencia' && !isTransferValid)}
                 onClick={handleConfirmCheckout}
                 className={`px-5 py-2 text-white rounded-lg font-bold shadow-lg transition active:scale-95 flex items-center gap-1.5 border ${
-                  isCardPayment && !isPosAuthValid
+                  (isCardPayment && !isPosAuthValid) || (paymentMethod === 'transferencia' && !isTransferValid)
                     ? 'bg-zinc-800 text-zinc-500 border-zinc-700 cursor-not-allowed opacity-60'
                     : 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30 border-rose-400/30'
                 }`}
@@ -506,10 +596,10 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
             </div>
           </div>
         ) : isSuccessReceipt && completedData ? (
-          /* RECEIPT / TICKET VIEW */
-          <div className="p-6 space-y-4 text-xs">
-            <div className="bg-emerald-950/60 border border-emerald-800/80 rounded-xl p-3 flex items-center gap-2.5 text-emerald-300">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+          /* RECEIPT / TICKET VIEW (58MM THERMAL PRINTER FORMATTED) */
+          <div className="p-6 space-y-4 text-xs flex flex-col items-center">
+            <div className="w-full bg-emerald-950/60 border border-emerald-800/80 rounded-xl p-3 flex items-center gap-2.5 text-emerald-300">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <div>
                 <div className="font-bold">¡Pago Procesado Exitosamente!</div>
                 <div className="text-[11px] text-emerald-400/80">
@@ -518,145 +608,162 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
               </div>
             </div>
 
-            {/* Printable Receipt Box */}
+            {/* Printable Receipt Box (Configured for 58mm Thermal Receipt Roll) */}
             <div
               id="printable-ticket"
-              className="bg-[#FAFAFA] text-zinc-900 rounded-xl p-5 font-mono text-xs shadow-inner border border-zinc-300 space-y-3"
+              className="w-full max-w-[280px] bg-white text-zinc-950 rounded-lg p-3 sm:p-4 font-mono text-[11px] leading-tight shadow-md border border-zinc-300 space-y-2 print:max-w-[58mm] print:p-0 print:border-none print:shadow-none"
+              style={{ fontFamily: "'Courier New', Courier, monospace" }}
             >
-              <div className="text-center border-b border-dashed border-zinc-400 pb-3">
-                <div className="font-extrabold text-sm uppercase tracking-wider text-zinc-950">
+              {/* Thermal Header */}
+              <div className="text-center border-b border-dashed border-zinc-800 pb-2 space-y-0.5">
+                <div className="font-black text-xs uppercase tracking-wider text-black">
                   {settings.parkingName || 'BAMO GARAGE SPA'}
                 </div>
-                <div className="text-[10.5px] font-semibold text-zinc-700">
+                <div className="text-[10px] font-bold text-zinc-800">
                   RUT: {settings.rut || '78.084.649-6'}
                 </div>
-                <div className="text-[10px] text-zinc-600">
-                  Dirección: {settings.address || 'Cobija 2058'}
+                <div className="text-[9.5px] text-zinc-700">
+                  {settings.address || 'Cobija 2058'}
                 </div>
-                <div className="text-[10px] text-zinc-600">
-                  Unidad: {settings.siiOffice || 'SII Calama'} • Cel: {settings.phone || '+56993939952'}
+                <div className="text-[9.5px] text-zinc-700">
+                  {settings.siiOffice || 'SII Calama'} • Cel: {settings.phone || '+56993939952'}
                 </div>
-                <div className="text-xs font-bold text-zinc-900 mt-1.5 pt-1 border-t border-dotted border-zinc-300">
-                  COMPROBANTE ELECTRÓNICO DE COBRO & SALIDA
+                <div className="text-[10px] font-black text-black pt-1 border-t border-dotted border-zinc-600 mt-1">
+                  *** COMPROBANTE DE PAGO ***
                 </div>
+                <div className="text-[9px] text-zinc-600">FORMATO TÉRMICO 58MM</div>
               </div>
 
-              <div className="space-y-1 text-[11px]">
+              {/* Ticket Details */}
+              <div className="space-y-0.5 text-[10px]">
                 <div className="flex justify-between">
-                  <span>Ticket N°:</span>
-                  <span className="font-bold">{completedData.ticketNumber}</span>
+                  <span>TICKET:</span>
+                  <span className="font-black">{completedData.ticketNumber}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Puesto:</span>
-                  <span className="font-bold">#{completedData.spotNumber}</span>
+                  <span>PUESTO:</span>
+                  <span className="font-black">#{completedData.spotNumber}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Patente:</span>
-                  <span className="font-bold">{completedData.plate}</span>
+                  <span>PATENTE:</span>
+                  <span className="font-black text-xs">{completedData.plate}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Vehículo:</span>
-                  <span>{completedData.brand} {completedData.model} ({completedData.color})</span>
+                <div className="flex justify-between truncate">
+                  <span>VEHÍCULO:</span>
+                  <span className="font-semibold">{completedData.brand} {completedData.model}</span>
                 </div>
                 {completedData.clientName && (
-                  <div className="flex justify-between">
-                    <span>Cliente:</span>
+                  <div className="flex justify-between truncate">
+                    <span>CLIENTE:</span>
                     <span>{completedData.clientName}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span>Entrada:</span>
+                  <span>INGRESO:</span>
                   <span>{formatDateTime(completedData.entryTime)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Salida:</span>
+                  <span>SALIDA:</span>
                   <span>{formatDateTime(completedData.exitTime)}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span>TIEMPO TOTAL:</span>
+                  <span>{completedData.pricing?.formattedDuration || `${completedData.durationMinutes || 0} min`}</span>
                 </div>
               </div>
 
-              {/* Breakdown */}
-              <div className="border-t border-b border-dashed border-zinc-400 py-2 space-y-1 text-[11px]">
+              {/* Financial Breakdown */}
+              <div className="border-t border-b border-dashed border-zinc-800 py-1.5 space-y-0.5 text-[10px]">
                 <div className="flex justify-between">
-                  <span>1er Tramo Fijo (0-30 min):</span>
-                  <span>{formatCLP(completedData.baseTierCost)}</span>
+                  <span>Estac. (1er Tramo 30m):</span>
+                  <span>{formatCLP(completedData.baseTierCost || settings.base30MinPrice || 900)}</span>
                 </div>
                 {completedData.extraTiersCount > 0 && (
                   <div className="flex justify-between">
-                    <span>{completedData.extraTiersCount} Tramos Extras (c/10m):</span>
+                    <span>Extras ({completedData.extraTiersCount}x 10m):</span>
                     <span>+{formatCLP(completedData.extraTierCost)}</span>
                   </div>
                 )}
                 {completedData.washOrders?.map((w: any, idx: number) => (
                   <div key={idx} className="flex justify-between">
-                    <span>Lavado ({w.serviceName}):</span>
+                    <span>Lavado {w.serviceName?.substring(0, 14)}:</span>
                     <span>+{formatCLP(w.price)}</span>
                   </div>
                 ))}
                 {completedData.accessorySales?.map((a: any, idx: number) => (
                   <div key={idx} className="flex justify-between">
-                    <span>{a.quantity}x {a.productName}:</span>
+                    <span>{a.quantity}x {a.productName?.substring(0, 12)}:</span>
                     <span>+{formatCLP(a.total)}</span>
                   </div>
                 ))}
                 {completedData.hasValetParking && (
-                  <div className="flex justify-between text-amber-900 font-medium">
-                    <span>Valet Parking{completedData.valetDriver ? ` (${completedData.valetDriver})` : ''}:</span>
+                  <div className="flex justify-between font-semibold">
+                    <span>Valet Parking:</span>
                     <span>+{formatCLP(completedData.valetParkingFee || settings.valetParkingPrice || 2000)}</span>
                   </div>
                 )}
               </div>
 
-              <div className="flex justify-between items-center text-sm font-extrabold pt-1">
-                <span>TOTAL PAGADO:</span>
-                <span>{formatCLP(completedData.totalAmount)}</span>
-              </div>
-              <div className="flex justify-between text-[10px] text-zinc-600">
-                <span>Método de Pago:</span>
-                <span className="uppercase font-semibold">{completedData.paymentMethod.replace('_', ' ')}</span>
-              </div>
-
-              {/* POS Terminal & Authorization Code Details on Ticket */}
-              {completedData.posProvider && (
-                <div className="bg-zinc-100 p-2 rounded border border-zinc-300 space-y-0.5 text-[10px] text-zinc-700">
-                  <div className="flex justify-between font-bold text-zinc-900">
-                    <span>Terminal POS:</span>
-                    <span>{completedData.posProvider === 'tuu' ? 'TUU (Redelcom)' : 'MERCADO PAGO (Point)'}</span>
-                  </div>
-                  {completedData.authorizationCode && (
-                    <div className="flex justify-between">
-                      <span>Cód. Autorización:</span>
-                      <span className="font-mono font-bold tracking-wider">{completedData.authorizationCode}</span>
-                    </div>
-                  )}
-                  {completedData.posFeeAmount !== undefined && completedData.posFeeAmount > 0 && (
-                    <div className="flex justify-between text-zinc-600">
-                      <span>Comisión Operador ({completedData.posFeePercent}%):</span>
-                      <span>-{formatCLP(completedData.posFeeAmount)}</span>
-                    </div>
-                  )}
-                  {completedData.netAmountReceived !== undefined && (
-                    <div className="flex justify-between font-bold text-emerald-800 pt-0.5 border-t border-zinc-200">
-                      <span>Neto Liquidado Empresa:</span>
-                      <span>{formatCLP(completedData.netAmountReceived)}</span>
-                    </div>
-                  )}
+              {/* Total & Payment Method */}
+              <div className="space-y-0.5 pt-0.5">
+                <div className="flex justify-between items-center text-xs font-black">
+                  <span>TOTAL COBRADO:</span>
+                  <span>{formatCLP(completedData.totalAmount)}</span>
                 </div>
-              )}
+                <div className="flex justify-between text-[9.5px]">
+                  <span>FORMA DE PAGO:</span>
+                  <span className="font-black uppercase">{completedData.paymentMethod?.replace('_', ' ')}</span>
+                </div>
 
-              <div className="text-center text-[10px] text-zinc-500 pt-2 border-t border-zinc-200">
-                ¡Gracias por su preferencia! Que tenga un excelente viaje.
+                {/* Fiscal references */}
+                {completedData.siiBoletaNumber && (
+                  <div className="flex justify-between text-[9.5px] font-bold text-black border-t border-dotted border-zinc-400 pt-0.5">
+                    <span>FOLIO BOLETA SII:</span>
+                    <span className="font-mono">{completedData.siiBoletaNumber}</span>
+                  </div>
+                )}
+
+                {completedData.transferVoucherNumber && (
+                  <div className="flex justify-between text-[9.5px] font-bold text-black border-t border-dotted border-zinc-400 pt-0.5">
+                    <span>N° TRX BANCARIA:</span>
+                    <span className="font-mono">{completedData.transferVoucherNumber}</span>
+                  </div>
+                )}
+
+                {/* POS Details */}
+                {completedData.posProvider && (
+                  <div className="border-t border-dotted border-zinc-400 pt-0.5 text-[9px] space-y-0.5 text-zinc-800">
+                    <div className="flex justify-between font-bold">
+                      <span>TERMINAL POS:</span>
+                      <span>{completedData.posProvider === 'tuu' ? 'POS TUU' : 'MERCADO PAGO'}</span>
+                    </div>
+                    {completedData.authorizationCode && (
+                      <div className="flex justify-between">
+                        <span>CÓD. AUTORIZACIÓN:</span>
+                        <span className="font-mono font-black">{completedData.authorizationCode}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="text-center text-[9px] text-zinc-700 pt-1.5 border-t border-dashed border-zinc-800 space-y-0.5">
+                <div>VALIDE SU BOLETA EN EL PORTAL DEL SII</div>
+                <div className="font-bold">¡GRACIAS POR SU VISITA!</div>
+                <div>www.bamogarage.cl</div>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-between pt-2">
+            <div className="w-full flex items-center justify-between pt-2">
               <button
                 type="button"
                 onClick={handlePrint}
                 className="flex items-center gap-1.5 px-4 py-2 bg-zinc-850 hover:bg-zinc-800 text-zinc-200 rounded-lg font-medium transition border border-zinc-750"
               >
                 <Printer className="w-4 h-4 text-cyan-400" />
-                Imprimir Comprobante
+                Imprimir Térmica 58mm
               </button>
 
               <button

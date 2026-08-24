@@ -21,6 +21,10 @@ import {
   RefreshCw,
   QrCode,
   Key,
+  Banknote,
+  CreditCard,
+  Tag,
+  Gift,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
@@ -70,6 +74,10 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
   const [shopSearch, setShopSearch] = useState('');
   const [shopNotes, setShopNotes] = useState('');
   const [shopSuccessMsg, setShopSuccessMsg] = useState<string | null>(null);
+
+  // Customer payment choice: 'efectivo' | 'debito' | null
+  const [customerPaymentChoice, setCustomerPaymentChoice] = useState<'efectivo' | 'debito' | null>(null);
+  const [quickAddSuccess, setQuickAddSuccess] = useState<string | null>(null);
 
   // Normalize plate helper
   const normalizePlate = (str: string) => str.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -242,6 +250,29 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
       setShopNotes('');
       setTimeout(() => setShopSuccessMsg(null), 6000);
       setActiveTab('stay');
+    }
+  };
+
+  // Quick 1-click add suggested shop accessory to active stay ticket
+  const handleQuickAddShopProduct = (product: any) => {
+    if (spotNumber && session?.status === 'active') {
+      const success = requestCustomerAccessories(spotNumber, [
+        {
+          productId: product.id,
+          productName: product.name,
+          quantity: 1,
+          unitPrice: product.price,
+          total: product.price,
+        },
+      ]);
+      if (success) {
+        setQuickAddSuccess(`¡${product.name} (${formatCLP(product.price)}) agregado al ticket de tu puesto #${spotNumber}!`);
+        setTimeout(() => setQuickAddSuccess(null), 4500);
+      }
+    } else {
+      handleAddToCart(product.id);
+      setQuickAddSuccess(`¡${product.name} agregado a tu carrito!`);
+      setTimeout(() => setQuickAddSuccess(null), 4500);
     }
   };
 
@@ -690,6 +721,189 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Quick Add Success Toast */}
+            {quickAddSuccess && (
+              <div className="p-3 bg-emerald-950/90 border border-emerald-500/60 rounded-xl text-emerald-200 text-xs flex items-center gap-2 shadow-lg animate-fadeIn">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <span className="font-semibold">{quickAddSuccess}</span>
+              </div>
+            )}
+
+            {/* CONSULTA DE FORMA DE PAGO AL CLIENTE: EFECTIVO O DÉBITO */}
+            <div className="bg-gradient-to-b from-zinc-900 via-[#10121A] to-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-black text-sm text-zinc-100 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-indigo-400" />
+                    ¿Qué forma de pago deseas usar al salir?
+                  </h3>
+                  <span className="text-[10px] text-zinc-400 font-mono">
+                    Total actual: <strong className="text-white text-xs">{formatCLP(grandTotal)}</strong>
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  Indica tu preferencia de pago para la caseta de salida. Puedes elegir entre <strong className="text-zinc-200">Efectivo</strong> o <strong className="text-zinc-200">Débito</strong>.
+                </p>
+              </div>
+
+              {/* 2 Payment Options Buttons */}
+              <div className="grid grid-cols-2 gap-2.5">
+                {/* 1. Efectivo */}
+                <button
+                  type="button"
+                  onClick={() => setCustomerPaymentChoice('efectivo')}
+                  className={`p-3.5 rounded-xl border-2 transition text-left flex flex-col justify-between relative overflow-hidden ${
+                    customerPaymentChoice === 'efectivo'
+                      ? 'bg-emerald-950/50 border-emerald-500 text-white shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-400/40'
+                      : 'bg-zinc-900/90 border-zinc-800 hover:border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  {customerPaymentChoice === 'efectivo' && (
+                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-emerald-500 text-black flex items-center justify-center font-bold">
+                      <Check className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 font-extrabold text-xs sm:text-sm text-emerald-400">
+                      <Banknote className="w-4 h-4" />
+                      <span>Efectivo</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 leading-tight">
+                      Paga en caja con efectivo exacto o recibe vuelto al instante.
+                    </p>
+                  </div>
+                  <div className="mt-2 text-[10px] font-mono text-emerald-400/90 font-bold">
+                    Sin monto mínimo
+                  </div>
+                </button>
+
+                {/* 2. Débito */}
+                <button
+                  type="button"
+                  onClick={() => setCustomerPaymentChoice('debito')}
+                  className={`p-3.5 rounded-xl border-2 transition text-left flex flex-col justify-between relative overflow-hidden ${
+                    customerPaymentChoice === 'debito'
+                      ? 'bg-indigo-950/50 border-indigo-500 text-white shadow-lg shadow-indigo-950/40 ring-1 ring-indigo-400/40'
+                      : 'bg-zinc-900/90 border-zinc-800 hover:border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  {customerPaymentChoice === 'debito' && (
+                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center font-bold">
+                      <Check className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 font-extrabold text-xs sm:text-sm text-indigo-400">
+                      <CreditCard className="w-4 h-4" />
+                      <span>Débito</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 leading-tight">
+                      Tarjeta Redcompra / Débito mediante terminal POS en caseta.
+                    </p>
+                  </div>
+                  <div className="mt-2 text-[10px] font-mono text-indigo-300 font-bold">
+                    Mínimo $1.200 CLP
+                  </div>
+                </button>
+              </div>
+
+              {/* FEEDBACK BASED ON CHOICE */}
+              {customerPaymentChoice === 'efectivo' && (
+                <div className="p-3.5 bg-emerald-950/40 border border-emerald-600/40 rounded-xl space-y-1.5 animate-fadeIn">
+                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    <span>Pago en Efectivo Seleccionado</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-300 leading-snug">
+                    Total actual a cancelar: <strong className="text-emerald-300 font-mono text-xs">{formatCLP(grandTotal)}</strong>. Podrás pagar directamente en efectivo al momento de retirar tu vehículo en la caseta.
+                  </p>
+                </div>
+              )}
+
+              {customerPaymentChoice === 'debito' && grandTotal < 1200 && (
+                <div className="p-4 bg-gradient-to-b from-amber-950/60 via-amber-950/40 to-zinc-900 border-2 border-amber-500/60 rounded-2xl space-y-3.5 animate-fadeIn">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <div className="font-extrabold text-xs sm:text-sm text-amber-300">
+                        Monto Mínimo con Débito: $1.200 CLP
+                      </div>
+                      <p className="text-[11px] text-zinc-200 leading-snug">
+                        {pricing.elapsedMinutes <= 30
+                          ? `Tu estadía actual está en el 1er tramo (${formatCLP(grandTotal)}), por lo que faltan ${formatCLP(1200 - grandTotal)} para alcanzar el monto mínimo requerido para pagos con tarjeta de débito.`
+                          : `Tu monto actual acumulado es de ${formatCLP(grandTotal)}, por lo que faltan ${formatCLP(1200 - grandTotal)} para alcanzar el mínimo de $1.200 CLP con débito.`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* SHOP PRODUCTS SUGGESTION (UPSELL) */}
+                  <div className="bg-zinc-950/80 border border-amber-500/30 rounded-xl p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-amber-200 flex items-center gap-1.5">
+                        <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
+                        ¡Agrega un producto de la tienda para alcanzar el mínimo!
+                      </span>
+                      <span className="text-[10px] text-amber-400 font-mono font-semibold">
+                        Faltan {formatCLP(1200 - grandTotal)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {accessoryProducts
+                        .filter((p) => p.stock > 0)
+                        .slice(0, 4)
+                        .map((prod) => (
+                          <div
+                            key={prod.id}
+                            className="bg-zinc-900 border border-zinc-750 hover:border-amber-500/50 rounded-lg p-2.5 flex items-center justify-between gap-2 transition"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-zinc-100 text-[11px] truncate">
+                                {prod.name}
+                              </div>
+                              <div className="text-[10px] font-mono text-amber-400 font-bold">
+                                {formatCLP(prod.price)}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleQuickAddShopProduct(prod)}
+                              className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm transition flex-shrink-0"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Agregar</span>
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-[10px]">
+                      <span className="text-zinc-400">¿No deseas agregar productos?</span>
+                      <button
+                        type="button"
+                        onClick={() => setCustomerPaymentChoice('efectivo')}
+                        className="text-emerald-400 hover:text-emerald-300 font-bold underline transition"
+                      >
+                        Pagar en Efectivo ({formatCLP(grandTotal)})
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {customerPaymentChoice === 'debito' && grandTotal >= 1200 && (
+                <div className="p-3.5 bg-emerald-950/40 border border-emerald-600/40 rounded-xl space-y-1.5 animate-fadeIn">
+                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                    <span>¡Monto Habilitado para Débito!</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-300 leading-snug">
+                    Total actual a cancelar: <strong className="text-emerald-300 font-mono text-xs">{formatCLP(grandTotal)}</strong> (Cumple con el monto mínimo de $1.200 CLP). Podrás pagar con tu tarjeta de débito en la caseta de salida.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Valet Parking Card if included */}
