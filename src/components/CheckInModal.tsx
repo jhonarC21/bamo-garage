@@ -229,7 +229,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
                 <span>Patente del Vehículo *</span>
                 {isFoundInDb && (
                   <span className="text-emerald-400 font-medium text-[11px] flex items-center gap-1">
-                    <Check className="w-3 h-3" /> Datos cargados automáticamente
+                    <Check className="w-3 h-3" /> Ficha reconocida en Base de Datos
                   </span>
                 )}
               </label>
@@ -240,7 +240,11 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
                   placeholder="Ej: KLYH-45 o PZ-1234"
                   value={plate}
                   onChange={(e) => handlePlateChange(e.target.value)}
-                  className="w-full bg-zinc-900 border-2 border-indigo-500/80 rounded-lg px-3 py-2 text-white uppercase font-mono font-bold tracking-wider placeholder:normal-case placeholder:font-sans placeholder:text-zinc-500 focus:outline-none focus:border-indigo-400 text-sm shadow-inner"
+                  className={`w-full bg-zinc-900 border-2 rounded-lg px-3 py-2 text-white uppercase font-mono font-bold tracking-wider placeholder:normal-case placeholder:font-sans placeholder:text-zinc-500 focus:outline-none text-sm shadow-inner transition ${
+                    isFoundInDb
+                      ? 'border-emerald-500/80 focus:border-emerald-400 bg-emerald-950/15'
+                      : 'border-indigo-500/80 focus:border-indigo-400'
+                  }`}
                   required
                   autoFocus
                 />
@@ -248,6 +252,24 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Notificación de Vehículo Ya Registrado en BD */}
+          {isFoundInDb && (
+            <div className="p-3 bg-emerald-950/50 border border-emerald-500/60 rounded-xl flex items-center justify-between gap-3 text-xs text-emerald-200 shadow-md animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <div>
+                  <span className="font-bold text-emerald-300">¡Vehículo ya registrado en la Base de Datos!</span>
+                  <div className="text-[11px] text-zinc-300">
+                    Datos del vehículo y cliente cargados automáticamente para evitar duplicidad de información.
+                  </div>
+                </div>
+              </div>
+              <span className="bg-emerald-900/80 text-emerald-200 border border-emerald-600/60 px-2 py-0.5 rounded font-mono text-[10px] font-bold whitespace-nowrap">
+                {visitsCount} visitas previas
+              </span>
+            </div>
+          )}
 
           {/* Manual Entry Time Selector */}
           <div className="bg-zinc-900/90 border border-zinc-750 rounded-xl p-3 space-y-2">

@@ -60,6 +60,44 @@ export const VehiclesDatabase: React.FC = () => {
   const [vipAccumulatedBalance, setVipAccumulatedBalance] = useState<string>('0');
   const [behaviorRating, setBehaviorRating] = useState<CustomerBehaviorRating>('bueno');
   const [behaviorNotes, setBehaviorNotes] = useState('');
+  const [actionToast, setActionToast] = useState<{ type: 'success' | 'warning' | 'info'; title: string; message: string } | null>(null);
+
+  // Duplicate vehicle detection in real-time
+  const cleanInputPlate = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const existingMatch = cleanInputPlate.length >= 3
+    ? vehicles.find(
+        (v) =>
+          v.plate.replace(/[^A-Z0-9]/g, '').toUpperCase() === cleanInputPlate &&
+          (!editingVehicle || v.plate.toUpperCase() !== editingVehicle.plate.toUpperCase())
+      )
+    : undefined;
+
+  const loadExistingMatchData = (matched: Vehicle) => {
+    setEditingVehicle(matched);
+    setPlate(matched.plate);
+    setBrand(matched.brand);
+    setModel(matched.model);
+    setColor(matched.color);
+    setYear(matched.year ? String(matched.year) : '');
+    setClientName(matched.clientName || '');
+    setClientRut(matched.clientRut || '');
+    setClientPhone(matched.clientPhone || '');
+    setClientEmail(matched.clientEmail || '');
+    setNotes(matched.notes || '');
+    setIsVIP(!!matched.isVIP);
+    setVipCreditLimit(String(matched.vipCreditLimit || 200000));
+    setVipAccumulatedBalance(String(matched.vipAccumulatedBalance || 0));
+    setBehaviorRating(matched.behaviorRating || 'bueno');
+    const notesStr = typeof matched.behaviorNotes === 'string' ? matched.behaviorNotes : Array.isArray(matched.behaviorNotes) ? matched.behaviorNotes.map(n => typeof n === 'string' ? n : (n as any)?.comment || '').join('; ') : '';
+    setBehaviorNotes(notesStr);
+
+    setActionToast({
+      type: 'info',
+      title: 'Ficha existente cargada',
+      message: `Se cargaron todos los datos de la patente ${matched.plate} para editar la ficha existente y evitar datos duplicados.`,
+    });
+    setTimeout(() => setActionToast(null), 5000);
+  };
 
   const openNewVehicleModal = () => {
     setEditingVehicle(null);
@@ -128,34 +166,60 @@ export const VehiclesDatabase: React.FC = () => {
     e.preventDefault();
     if (!plate.trim()) return;
 
-    const visits = editingVehicle?.visitsCount || 1;
-    const isFreq = visits >= settings.frequentThreshold;
+    const targetPlate = plate.trim().toUpperCase();
+    const matchedRecord = editingVehicle || existingMatch;
+
+    const visits = matchedRecord?.visitsCount || 1;
+    const isFreq = visits >= settings.frequentThreshold || !!matchedRecord?.isFrequent;
 
     const vehicleToSave: Vehicle = {
-      plate: plate.trim().toUpperCase(),
-      brand: brand.trim() || 'Desconocida',
-      model: model.trim() || 'Desconocido',
-      color: color.trim() || 'Desconocido',
-      year: year ? parseInt(year, 10) : undefined,
-      clientName: clientName.trim() || undefined,
-      clientRut: clientRut.trim() || undefined,
-      clientPhone: clientPhone.trim() || undefined,
-      clientEmail: clientEmail.trim() || undefined,
-      notes: notes.trim() || undefined,
+      plate: targetPlate,
+      brand: brand.trim() || matchedRecord?.brand || 'Desconocida',
+      model: model.trim() || matchedRecord?.model || 'Desconocido',
+      color: color.trim() || matchedRecord?.color || 'Desconocido',
+      year: year ? parseInt(year, 10) : matchedRecord?.year,
+      clientName: clientName.trim() || matchedRecord?.clientName,
+      clientRut: clientRut.trim() || matchedRecord?.clientRut,
+      clientPhone: clientPhone.trim() || matchedRecord?.clientPhone,
+      clientEmail: clientEmail.trim() || matchedRecord?.clientEmail,
+      notes: notes.trim() || matchedRecord?.notes,
       isVIP: isVIP,
-      vipCreditLimit: isVIP ? parseFloat(vipCreditLimit) || 200000 : undefined,
-      vipAccumulatedBalance: isVIP ? parseFloat(vipAccumulatedBalance) || 0 : 0,
+      vipCreditLimit: isVIP ? (parseFloat(vipCreditLimit) || matchedRecord?.vipCreditLimit || 200000) : undefined,
+      vipAccumulatedBalance: isVIP ? (parseFloat(vipAccumulatedBalance) || matchedRecord?.vipAccumulatedBalance || 0) : (matchedRecord?.vipAccumulatedBalance || 0),
       behaviorRating: behaviorRating,
       behaviorNotes: behaviorNotes.trim() || undefined,
       visitsCount: visits,
-      totalSpent: editingVehicle?.totalSpent || 0,
+      totalSpent: matchedRecord?.totalSpent || 0,
       isFrequent: isFreq,
-      createdAt: editingVehicle?.createdAt || new Date().toISOString(),
-      lastVisit: editingVehicle?.lastVisit || new Date().toISOString(),
+      createdAt: matchedRecord?.createdAt || new Date().toISOString(),
+      lastVisit: matchedRecord?.lastVisit || new Date().toISOString(),
     };
 
     saveVehicle(vehicleToSave);
     setIsModalOpen(false);
+
+    if (!editingVehicle && existingMatch) {
+      setActionToast({
+        type: 'warning',
+        title: 'Vehículo existente actualizado',
+        message: `El vehículo patente ${targetPlate} ya se encontraba registrado en la base de datos. Se actualizaron sus datos sin duplicar el registro.`,
+      });
+      setTimeout(() => setActionToast(null), 6000);
+    } else if (editingVehicle) {
+      setActionToast({
+        type: 'success',
+        title: 'Ficha actualizada',
+        message: `Datos del vehículo ${targetPlate} actualizados correctamente.`,
+      });
+      setTimeout(() => setActionToast(null), 4000);
+    } else {
+      setActionToast({
+        type: 'success',
+        title: 'Vehículo registrado',
+        message: `Nuevo vehículo patente ${targetPlate} incorporado exitosamente a la base de datos.`,
+      });
+      setTimeout(() => setActionToast(null), 4000);
+    }
   };
 
   const filteredVehicles = vehicles.filter((v) => {
@@ -231,6 +295,39 @@ export const VehiclesDatabase: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Action Notification Toast */}
+      {actionToast && (
+        <div
+          className={`p-4 rounded-xl border flex items-start justify-between gap-3 shadow-2xl animate-fadeIn ${
+            actionToast.type === 'warning'
+              ? 'bg-amber-950/90 border-amber-500/80 text-amber-200'
+              : actionToast.type === 'info'
+              ? 'bg-cyan-950/90 border-cyan-500/80 text-cyan-200'
+              : 'bg-emerald-950/90 border-emerald-500/80 text-emerald-200'
+          }`}
+        >
+          <div className="flex items-start gap-2.5">
+            {actionToast.type === 'warning' ? (
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            ) : actionToast.type === 'info' ? (
+              <CheckCircle2 className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+            )}
+            <div>
+              <div className="font-bold text-xs sm:text-sm">{actionToast.title}</div>
+              <p className="text-xs text-zinc-300 mt-0.5">{actionToast.message}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActionToast(null)}
+            className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-black/30 transition text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl p-5 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -464,16 +561,91 @@ export const VehiclesDatabase: React.FC = () => {
 
             <form onSubmit={handleSave} className="p-6 space-y-3.5 text-xs">
               <div>
-                <label className="block text-zinc-300 font-medium mb-1">Patente *</label>
-                <input
-                  type="text"
-                  placeholder="Ej: KLYH-45"
-                  value={plate}
-                  onChange={(e) => setPlate(e.target.value.toUpperCase())}
-                  className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-2 text-white uppercase font-mono font-bold tracking-wider text-xs focus:outline-none focus:border-indigo-500"
-                  required
-                />
+                <label className="block text-zinc-300 font-medium mb-1 flex items-center justify-between">
+                  <span>Patente *</span>
+                  {editingVehicle && (
+                    <span className="text-cyan-400 font-mono text-[11px] flex items-center gap-1 font-semibold">
+                      <Edit2 className="w-3 h-3" /> Editando ficha existente
+                    </span>
+                  )}
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Ej: KLYH-45"
+                    value={plate}
+                    onChange={(e) => setPlate(e.target.value.toUpperCase())}
+                    className={`w-full bg-zinc-900 border-2 rounded-lg px-3 py-2 text-white uppercase font-mono font-bold tracking-wider text-xs focus:outline-none transition ${
+                      existingMatch
+                        ? 'border-amber-500 bg-amber-950/20 text-amber-200'
+                        : 'border-zinc-750 focus:border-indigo-500'
+                    }`}
+                    required
+                  />
+                  {existingMatch && (
+                    <div className="absolute right-2.5 top-2">
+                      <span className="bg-amber-500 text-black px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow">
+                        <AlertTriangle className="w-3 h-3" /> Ya Registrado
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {/* NOTIFICACIÓN ACTIVA SI EL VEHÍCULO YA ESTÁ REGISTRADO */}
+              {existingMatch && (
+                <div className="p-3.5 bg-gradient-to-b from-amber-950/80 via-amber-950/50 to-zinc-900 border-2 border-amber-500/70 rounded-xl space-y-2.5 shadow-xl animate-fadeIn">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                      <span>¡Vehículo ya se encuentra en la Base de Datos!</span>
+                    </div>
+                    <span className="bg-amber-900/90 text-amber-200 border border-amber-500/60 px-2 py-0.5 rounded font-mono font-bold text-[10px]">
+                      {existingMatch.plate}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-zinc-300 leading-snug">
+                    Para <strong className="text-white">evitar datos duplicados</strong>, puedes cargar su ficha actual para editarla o completar el formulario sabiendo que se actualizará este registro existente.
+                  </p>
+
+                  {/* Existing record data summary card */}
+                  <div className="bg-black/60 border border-amber-500/30 rounded-lg p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-zinc-400 text-[10px] block">Vehículo registrado:</span>
+                      <strong className="text-zinc-100 font-semibold">{existingMatch.brand} {existingMatch.model} ({existingMatch.color})</strong>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400 text-[10px] block">Cliente / RUT / Teléfono:</span>
+                      <strong className="text-zinc-200">{existingMatch.clientName || 'Sin nombre'} {existingMatch.clientRut ? `• ${existingMatch.clientRut}` : ''}</strong>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400 text-[10px] block">Historial de Visitas:</span>
+                      <strong className="text-cyan-400 font-mono">{existingMatch.visitsCount} visitas ({formatCLP(existingMatch.totalSpent || 0)})</strong>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400 text-[10px] block">Categoría & Conducta:</span>
+                      <span className="font-bold text-amber-300">
+                        {existingMatch.isVIP ? '⭐ VIP' : existingMatch.isFrequent ? '⭐ Frecuente' : 'Estándar'} • {existingMatch.behaviorRating || 'bueno'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => loadExistingMatchData(existingMatch)}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-extrabold rounded-lg text-xs flex items-center gap-1.5 transition shadow active:scale-95"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Cargar Ficha Existente para Editar</span>
+                    </button>
+                    <span className="text-[10px] text-amber-300/80 italic font-medium">
+                      ✓ No se generarán registros duplicados
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
@@ -671,9 +843,30 @@ export const VehiclesDatabase: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow transition border border-indigo-400/30"
+                  className={`px-5 py-2 rounded-lg font-bold shadow transition border flex items-center gap-1.5 ${
+                    existingMatch && !editingVehicle
+                      ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-400/40'
+                      : editingVehicle
+                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-400/30'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-400/30'
+                  }`}
                 >
-                  Guardar Vehículo
+                  {existingMatch && !editingVehicle ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-amber-200" />
+                      Actualizar Ficha Existente (Sin Duplicar)
+                    </>
+                  ) : editingVehicle ? (
+                    <>
+                      <Edit2 className="w-4 h-4" />
+                      Guardar Cambios del Vehículo
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Registrar Nuevo Vehículo
+                    </>
+                  )}
                 </button>
               </div>
             </form>

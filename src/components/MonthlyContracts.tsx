@@ -123,6 +123,8 @@ export const MonthlyContracts: React.FC = () => {
   const [customFee, setCustomFee] = useState<string>('');
   const [notes, setNotes] = useState('');
 
+  const [isFoundInDb, setIsFoundInDb] = useState(false);
+
   // Default fees by type
   const getFeeForType = (type: ContractType) => {
     switch (type) {
@@ -158,7 +160,7 @@ export const MonthlyContracts: React.FC = () => {
   const handlePlateChange = (val: string) => {
     const formatted = val.toUpperCase();
     setPlate(formatted);
-    if (formatted.length >= 4) {
+    if (formatted.length >= 3) {
       const match = getVehicleByPlate(formatted);
       if (match) {
         setBrand(match.brand || '');
@@ -168,8 +170,11 @@ export const MonthlyContracts: React.FC = () => {
         setClientRut(match.clientRut || '');
         setClientPhone(match.clientPhone || '');
         setClientEmail(match.clientEmail || '');
+        setIsFoundInDb(true);
+        return;
       }
     }
+    setIsFoundInDb(false);
   };
 
   const handleCreateContract = (e: React.FormEvent) => {
@@ -625,19 +630,41 @@ export const MonthlyContracts: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-zinc-300 font-medium mb-1">
-                    Patente del Vehículo *
+                  <label className="block text-zinc-300 font-medium mb-1 flex items-center justify-between">
+                    <span>Patente del Vehículo *</span>
+                    {isFoundInDb && (
+                      <span className="text-emerald-400 font-medium text-[10px]">
+                        ✓ Ficha en Base de Datos
+                      </span>
+                    )}
                   </label>
                   <input
                     type="text"
                     placeholder="Ej: LJWR-12"
                     value={plate}
                     onChange={(e) => handlePlateChange(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-2 text-white uppercase font-mono font-bold tracking-wider text-xs focus:outline-none focus:border-indigo-500"
+                    className={`w-full bg-zinc-900 border-2 rounded-lg px-3 py-2 text-white uppercase font-mono font-bold tracking-wider text-xs focus:outline-none transition ${
+                      isFoundInDb
+                        ? 'border-emerald-500/80 focus:border-emerald-400 bg-emerald-950/15'
+                        : 'border-zinc-750 focus:border-indigo-500'
+                    }`}
                     required
                   />
                 </div>
               </div>
+
+              {/* Notificación de Vehículo en Base de Datos */}
+              {isFoundInDb && (
+                <div className="p-3 bg-emerald-950/50 border border-emerald-500/60 rounded-xl flex items-center gap-2.5 text-xs text-emerald-200 shadow-md animate-fadeIn">
+                  <span className="text-base">🚗</span>
+                  <div className="flex-1">
+                    <span className="font-bold text-emerald-300">Vehículo reconocido en la Base de Datos</span>
+                    <div className="text-[11px] text-zinc-300">
+                      Datos cargados automáticamente para evitar registros duplicados.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Vehicle specs */}
               <div className="grid grid-cols-3 gap-2">
