@@ -61,12 +61,16 @@ export const DailyCashRegister: React.FC = () => {
     vehicles,
     vipPaymentRecords,
     payVIPAccumulatedBalance,
+    reclassifySessionPaymentMethod,
   } = useParking();
 
   // Active view tab inside Cash Register
   const [activeSubTab, setActiveSubTab] = useState<
     'movements' | 'vip_receivables' | 'expenses' | 'closure' | 'history'
   >('movements');
+
+  const [reclassifyNotification, setReclassifyNotification] = useState<string | null>(null);
+  const [editingSessionPayment, setEditingSessionPayment] = useState<string | null>(null);
 
   // Open Cash Register modal
   const [isOpenCashModalOpen, setIsOpenCashModalOpen] = useState(false);
@@ -761,6 +765,84 @@ export const DailyCashRegister: React.FC = () => {
 
           {/* Table of Paid Transactions */}
           <div className="bg-[#0F1117] border border-zinc-800 rounded-xl overflow-hidden">
+            {/* Real-time Notification Banner */}
+            {reclassifyNotification && (
+              <div className="bg-yellow-950/90 border-b border-yellow-500/60 p-3 px-4 text-xs text-yellow-200 flex items-center justify-between animate-fade-in">
+                <div className="flex items-center gap-2 font-medium">
+                  <Crown className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                  <span>{reclassifyNotification}</span>
+                </div>
+                <button
+                  onClick={() => setReclassifyNotification(null)}
+                  className="text-yellow-400 hover:text-white text-xs font-bold px-2 py-0.5"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Smart Alert for VIP clients registered with regular cash/card */}
+            {todayPaidParkingSessions.filter((s) => {
+              if (s.paymentMethod === 'cuenta_corriente_vip') return false;
+              const v = vehicles.find((veh) => veh.plate.toUpperCase() === s.plate.toUpperCase());
+              return v?.isVIP || s.isVIP;
+            }).length > 0 && (
+              <div className="p-4 bg-gradient-to-r from-[#1E170A] via-yellow-950/40 to-[#1E170A] border-b-2 border-yellow-500/70 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-yellow-300 font-bold text-xs sm:text-sm">
+                    <Crown className="w-4 h-4 text-yellow-400 fill-yellow-400 shrink-0" />
+                    <span>⚠️ Salidas de Clientes VIP registradas como cobro inmediato</span>
+                  </div>
+                  <span className="text-[10px] bg-yellow-500/20 text-yellow-300 font-bold px-2 py-0.5 rounded border border-yellow-500/40">
+                    Ajuste Rápido de Caja
+                  </span>
+                </div>
+                <p className="text-yellow-200/90 text-xs leading-relaxed">
+                  Las siguientes salidas pertenecen a clientes VIP con convenio semanal y se sumaron a la caja del día. Si no cancelaron en el momento, transfiéralas a su <strong>Cuenta Corriente VIP</strong> para descontarlas de la caja física y acumularlas en sus cuentas por cobrar:
+                </p>
+                <div className="space-y-2 pt-1">
+                  {todayPaidParkingSessions
+                    .filter((s) => {
+                      if (s.paymentMethod === 'cuenta_corriente_vip') return false;
+                      const v = vehicles.find((veh) => veh.plate.toUpperCase() === s.plate.toUpperCase());
+                      return v?.isVIP || s.isVIP;
+                    })
+                    .map((vs) => (
+                      <div
+                        key={vs.id}
+                        className="bg-black/60 border border-yellow-500/50 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs shadow-inner"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="bg-yellow-500/20 text-yellow-300 font-mono font-bold px-2.5 py-1 rounded border border-yellow-500/40 text-sm">
+                            {vs.plate}
+                          </span>
+                          <div>
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <span>{vs.clientName || 'Cliente VIP'}</span>
+                              <span className="text-zinc-400 text-[11px] font-mono">#{vs.ticketNumber}</span>
+                            </div>
+                            <div className="text-[11px] text-zinc-400 mt-0.5">
+                              Cobrado como: <span className="uppercase text-yellow-300 font-semibold">{vs.paymentMethod.replace('_', ' ')}</span> — Monto: <strong className="text-white font-mono">{formatCLP(vs.totalAmount)}</strong>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const res = reclassifySessionPaymentMethod(vs.id, 'cuenta_corriente_vip');
+                            setReclassifyNotification(res.message);
+                            setTimeout(() => setReclassifyNotification(null), 5000);
+                          }}
+                          className="px-3.5 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black font-extrabold rounded-lg shadow-md shadow-yellow-500/30 transition text-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-95"
+                        >
+                          <Crown className="w-3.5 h-3.5 fill-black" />
+                          Pasar a Cuenta Corriente VIP
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
               <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-400" />
@@ -783,6 +865,7 @@ export const DailyCashRegister: React.FC = () => {
                       <th className="p-3 font-semibold">Concepto / Desglose</th>
                       <th className="p-3 font-semibold">Medio de Pago & POS</th>
                       <th className="p-3 font-semibold text-right">Monto Recaudado</th>
+                      <th className="p-3 font-semibold text-center">Acciones / Corrección</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
@@ -811,73 +894,124 @@ export const DailyCashRegister: React.FC = () => {
                         <td className="p-3 text-right font-mono font-extrabold text-emerald-400 text-sm">
                           +{formatCLP(vipPay.amount)}
                         </td>
+                        <td className="p-3 text-center text-zinc-500 text-[11px]">
+                          Abono en Caja
+                        </td>
                       </tr>
                     ))}
 
                     {/* Regular Paid Parking Sessions */}
-                    {todayPaidParkingSessions.map((session) => (
-                      <tr key={session.id} className="hover:bg-zinc-850/50">
-                        <td className="p-3 font-mono text-zinc-400">{formatTimeOnly(session.exitTime)}</td>
-                        <td className="p-3 font-mono font-bold text-zinc-200">
-                          <span className="bg-zinc-800 px-2 py-0.5 rounded border border-zinc-700 mr-2">
-                            {session.plate}
-                          </span>
-                          <span className="text-zinc-400 text-[11px]">#{session.ticketNumber}</span>
-                        </td>
-                        <td className="p-3 text-zinc-300">{session.clientName || 'Cliente Ocasional'}</td>
-                        <td className="p-3 text-zinc-400">
-                          <div>Parking: {formatCLP(session.parkingCost)}</div>
-                          {session.washOrders && session.washOrders.length > 0 && (
-                            <div className="text-cyan-400 text-[11px]">
-                              Lavado: {session.washOrders.map((w) => w.serviceName).join(', ')} ({formatCLP(session.washOrders.reduce((a, b) => a + b.price, 0))})
-                            </div>
-                          )}
-                          {session.accessorySales && session.accessorySales.length > 0 && (
-                            <div className="text-amber-400 text-[11px]">
-                              Tienda: {session.accessorySales.length} producto(s) ({formatCLP(session.accessorySales.reduce((a, b) => a + b.total, 0))})
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          <div className="space-y-1">
-                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-zinc-800 text-zinc-300 border border-zinc-700">
-                              {session.paymentMethod.replace('_', ' ')}
+                    {todayPaidParkingSessions.map((session) => {
+                      const veh = vehicles.find((v) => v.plate.toUpperCase() === session.plate.toUpperCase());
+                      const isVipVeh = veh?.isVIP || session.isVIP;
+                      return (
+                        <tr key={session.id} className="hover:bg-zinc-850/50">
+                          <td className="p-3 font-mono text-zinc-400">{formatTimeOnly(session.exitTime)}</td>
+                          <td className="p-3 font-mono font-bold text-zinc-200">
+                            <span className="bg-zinc-800 px-2 py-0.5 rounded border border-zinc-700 mr-2">
+                              {session.plate}
                             </span>
-                            {session.posProvider && (
-                              <div className="flex items-center gap-1.5 text-[10px]">
-                                <span className={`px-1.5 py-0.2 rounded font-bold ${
-                                  session.posProvider === 'tuu'
-                                    ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-500/40'
-                                    : 'bg-sky-950/80 text-sky-300 border border-sky-500/40'
-                                }`}>
-                                  POS {session.posProvider === 'tuu' ? 'TUU' : 'MP'}
+                            <span className="text-zinc-400 text-[11px]">#{session.ticketNumber}</span>
+                          </td>
+                          <td className="p-3 text-zinc-300">
+                            <div className="flex items-center gap-1.5">
+                              <span>{session.clientName || 'Cliente Ocasional'}</span>
+                              {isVipVeh && (
+                                <span className="bg-yellow-500/20 text-yellow-300 text-[9.5px] px-1.5 py-0.2 rounded font-bold border border-yellow-500/40 flex items-center gap-0.5">
+                                  <Crown className="w-2.5 h-2.5 fill-yellow-400" />
+                                  VIP
                                 </span>
-                                {session.authorizationCode && (
-                                  <span className="font-mono text-zinc-400">
-                                    Cód: <strong className="text-zinc-200">{session.authorizationCode}</strong>
-                                  </span>
-                                )}
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3 text-zinc-400">
+                            <div>Parking: {formatCLP(session.parkingCost)}</div>
+                            {session.washOrders && session.washOrders.length > 0 && (
+                              <div className="text-cyan-400 text-[11px]">
+                                Lavado: {session.washOrders.map((w) => w.serviceName).join(', ')} ({formatCLP(session.washOrders.reduce((a, b) => a + b.price, 0))})
                               </div>
                             )}
-                          </div>
-                        </td>
-                        <td className="p-3 text-right font-mono">
-                          <div className="font-bold text-white text-sm">
-                            {formatCLP(session.totalAmount)}
-                          </div>
-                          {session.posFeeAmount !== undefined && session.posFeeAmount > 0 && (
-                            <div className="text-[10px] text-rose-400">
-                              Comisión ({session.posFeePercent}%): -{formatCLP(session.posFeeAmount)}
+                            {session.accessorySales && session.accessorySales.length > 0 && (
+                              <div className="text-amber-400 text-[11px]">
+                                Tienda: {session.accessorySales.length} producto(s) ({formatCLP(session.accessorySales.reduce((a, b) => a + b.total, 0))})
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <div className="space-y-1">
+                              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                {session.paymentMethod.replace('_', ' ')}
+                              </span>
+                              {session.posProvider && (
+                                <div className="flex items-center gap-1.5 text-[10px]">
+                                  <span className={`px-1.5 py-0.2 rounded font-bold ${
+                                    session.posProvider === 'tuu'
+                                      ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-500/40'
+                                      : 'bg-sky-950/80 text-sky-300 border border-sky-500/40'
+                                  }`}>
+                                    POS {session.posProvider === 'tuu' ? 'TUU' : 'MP'}
+                                  </span>
+                                  {session.authorizationCode && (
+                                    <span className="font-mono text-zinc-400">
+                                      Cód: <strong className="text-zinc-200">{session.authorizationCode}</strong>
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {session.netAmountReceived !== undefined && (
-                            <div className="text-[11px] font-bold text-emerald-400">
-                              Neto: {formatCLP(session.netAmountReceived)}
+                          </td>
+                          <td className="p-3 text-right font-mono">
+                            <div className="font-bold text-white text-sm">
+                              {formatCLP(session.totalAmount)}
                             </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                            {session.posFeeAmount !== undefined && session.posFeeAmount > 0 && (
+                              <div className="text-[10px] text-rose-400">
+                                Comisión ({session.posFeePercent}%): -{formatCLP(session.posFeeAmount)}
+                              </div>
+                            )}
+                            {session.netAmountReceived !== undefined && (
+                              <div className="text-[11px] font-bold text-emerald-400">
+                                Neto: {formatCLP(session.netAmountReceived)}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            <div className="flex flex-col items-center gap-1.5">
+                              {session.paymentMethod !== 'cuenta_corriente_vip' && (
+                                <button
+                                  onClick={() => {
+                                    const res = reclassifySessionPaymentMethod(session.id, 'cuenta_corriente_vip');
+                                    setReclassifyNotification(res.message);
+                                    setTimeout(() => setReclassifyNotification(null), 5000);
+                                  }}
+                                  title="Transferir a Cuenta Corriente VIP para que no sume a la caja física"
+                                  className="px-2.5 py-1 bg-yellow-950/80 hover:bg-yellow-900 border border-yellow-600/70 text-yellow-300 rounded-lg text-[10px] font-bold flex items-center gap-1 transition shadow-sm active:scale-95"
+                                >
+                                  <Crown className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                                  Pasar a Crédito VIP
+                                </button>
+                              )}
+                              <select
+                                value={session.paymentMethod}
+                                onChange={(e) => {
+                                  const newMethod = e.target.value as PaymentMethod;
+                                  const res = reclassifySessionPaymentMethod(session.id, newMethod);
+                                  setReclassifyNotification(res.message);
+                                  setTimeout(() => setReclassifyNotification(null), 5000);
+                                }}
+                                className="bg-zinc-900 border border-zinc-700 text-zinc-400 hover:text-zinc-200 text-[10px] rounded px-1.5 py-0.5 focus:outline-none focus:border-indigo-500"
+                              >
+                                <option value="efectivo">Efectivo</option>
+                                <option value="tarjeta_debito">Débito</option>
+                                <option value="tarjeta_credito">Crédito</option>
+                                <option value="transferencia">Transferencia</option>
+                                <option value="cuenta_corriente_vip">Crédito VIP</option>
+                              </select>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

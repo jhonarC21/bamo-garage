@@ -228,6 +228,13 @@ interface ParkingContextType {
   deleteMonthlyContract: (contractId: string, adminPinOrBypass?: string) => { success: boolean; message: string };
   saveVehicle: (vehicle: Vehicle) => void;
   getVehicleByPlate: (plate: string) => Vehicle | undefined;
+  reclassifySessionPaymentMethod: (
+    sessionId: string,
+    newPaymentMethod: PaymentMethod,
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
+  ) => { success: boolean; message: string };
   advanceTime: (minutes: number) => void;
   resetTime: () => void;
   resetToInitialData: () => void;
@@ -1576,6 +1583,84 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
+  // Reclassify / Modify payment method for completed sessions (e.g. transfer accidentally logged cash to VIP receivable credit)
+  const reclassifySessionPaymentMethod = (
+    sessionId: string,
+    newPaymentMethod: PaymentMethod,
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
+  ): { success: boolean; message: string } => {
+    const session = completedSessions.find((s) => s.id === sessionId);
+    if (!session) {
+      return { success: false, message: 'La sesión no fue encontrada.' };
+    }
+
+    const prevMethod = session.paymentMethod;
+    if (prevMethod === newPaymentMethod) {
+      return { success: false, message: 'El medio de pago ya es el seleccionado.' };
+    }
+
+    const posCalculation = calculatePOSFee(
+      session.totalAmount,
+      newPaymentMethod,
+      posInfo?.provider,
+      settings
+    );
+
+    setCompletedSessions((prev) =>
+      prev.map((s) => {
+        if (s.id === sessionId) {
+          return {
+            ...s,
+            paymentMethod: newPaymentMethod,
+            posProvider: posInfo?.provider,
+            authorizationCode: posInfo?.authorizationCode,
+            siiBoletaNumber: newPaymentMethod === 'efectivo' ? siiBoletaNumber?.trim() : undefined,
+            transferVoucherNumber: newPaymentMethod === 'transferencia' ? transferVoucherNumber?.trim() : undefined,
+            posFeePercent: posCalculation.feePercent > 0 ? posCalculation.feePercent : undefined,
+            posFeeAmount: posCalculation.feeAmount > 0 ? posCalculation.feeAmount : undefined,
+            netAmountReceived: posCalculation.netAmount,
+          };
+        }
+        return s;
+      })
+    );
+
+    const plate = session.plate.toUpperCase();
+    setVehicles((prev) =>
+      prev.map((v) => {
+        if (v.plate.toUpperCase() === plate) {
+          let newVipBal = v.vipAccumulatedBalance || 0;
+          let isVip = v.isVIP;
+
+          if (newPaymentMethod === 'cuenta_corriente_vip') {
+            newVipBal += session.totalAmount;
+            isVip = true;
+          } else if (prevMethod === 'cuenta_corriente_vip') {
+            newVipBal = Math.max(0, newVipBal - session.totalAmount);
+          }
+
+          return {
+            ...v,
+            isVIP: isVip,
+            vipAccumulatedBalance: newVipBal,
+          };
+        }
+        return v;
+      })
+    );
+
+    return {
+      success: true,
+      message: `Medio de pago actualizado a ${newPaymentMethod.replace('_', ' ').toUpperCase()}${
+        newPaymentMethod === 'cuenta_corriente_vip'
+          ? ' (El monto se cargó a la Cuenta Corriente VIP y se descontó de la Caja Diaria)'
+          : ''
+      }.`,
+    };
+  };
+
   // --- Administrator Reconciliation Audit ---
   const reconcileTransaction = (
     id: string,
@@ -2267,6 +2352,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         batchReconcileTransactions,
         saveVehicle,
         getVehicleByPlate,
+        reclassifySessionPaymentMethod,
         advanceTime,
         resetTime,
         resetToInitialData,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   LogOut,
@@ -46,13 +46,32 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
   const [isSuccessReceipt, setIsSuccessReceipt] = useState(false);
   const [completedData, setCompletedData] = useState<any>(null);
 
-  if (!isOpen || spotNumber === null) return null;
-
-  const session = getSpotSession(spotNumber);
-  if (!session && !isSuccessReceipt) return null;
-
+  const session = spotNumber !== null ? getSpotSession(spotNumber) : undefined;
   const vehicle = session?.plate ? getVehicleByPlate(session.plate) : undefined;
-  const isVipClient = !!vehicle?.isVIP;
+  const isVipClient = !!vehicle?.isVIP || !!session?.isVIP;
+
+  useEffect(() => {
+    if (isOpen && spotNumber !== null) {
+      const s = getSpotSession(spotNumber);
+      if (s) {
+        const v = s.plate ? getVehicleByPlate(s.plate) : undefined;
+        if (v?.isVIP || s.isVIP) {
+          setPaymentMethod('cuenta_corriente_vip');
+        } else {
+          setPaymentMethod('tarjeta_debito');
+        }
+      }
+      setAuthorizationCode('');
+      setSiiBoletaNumber('');
+      setTransferVoucherNumber('');
+      setCashGiven('');
+      setIsSuccessReceipt(false);
+      setCompletedData(null);
+    }
+  }, [isOpen, spotNumber]);
+
+  if (!isOpen || spotNumber === null) return null;
+  if (!session && !isSuccessReceipt) return null;
 
   const pricing = session
     ? calculateParkingFee(
@@ -157,6 +176,28 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
         {/* Modal Content */}
         {!isSuccessReceipt && session && pricing ? (
           <div className="p-6 space-y-4 text-xs">
+            {/* VIP Customer Auto-Detection Banner */}
+            {isVipClient && (
+              <div className="bg-[#1C170A] border-2 border-yellow-500/80 rounded-xl p-3.5 flex items-start gap-3 shadow-lg shadow-yellow-950/40">
+                <div className="w-8 h-8 rounded-lg bg-yellow-500/20 border border-yellow-500/40 flex items-center justify-center text-yellow-400 shrink-0 mt-0.5">
+                  <Crown className="w-5 h-5 fill-yellow-400" />
+                </div>
+                <div className="flex-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-yellow-300 text-sm">
+                      CLIENTE VIP: {vehicle?.clientName || session.clientName || session.plate}
+                    </span>
+                    <span className="bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded text-[10px] font-bold border border-yellow-500/40">
+                      Cuenta Corriente VIP
+                    </span>
+                  </div>
+                  <p className="text-yellow-200/90 text-[11px] mt-1 leading-snug">
+                    Modalidad seleccionada automáticamente: <strong>Crédito VIP (Cuenta por Cobrar)</strong>. Este servicio se acumulará en la cuenta corriente del cliente y <strong>NO sumará a la caja diaria ni al dinero en efectivo</strong>.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Vehicle & Time Header */}
             <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 space-y-2">
               <div className="flex items-center justify-between">
@@ -326,15 +367,21 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
               </div>
 
               <div className={`grid gap-2 ${isVipClient ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'}`}>
-                {[
-                  { id: 'tarjeta_debito', label: 'Débito', icon: CreditCard },
-                  { id: 'tarjeta_credito', label: 'Crédito', icon: CreditCard },
-                  { id: 'efectivo', label: 'Efectivo', icon: Banknote },
-                  { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
-                  ...(isVipClient || session.isVIP
-                    ? [{ id: 'cuenta_corriente_vip', label: 'Crédito VIP', icon: Crown, isVipHighlight: true }]
-                    : []),
-                ].map((m) => {
+                {(isVipClient || session.isVIP
+                  ? [
+                      { id: 'cuenta_corriente_vip', label: '⭐ Crédito VIP', icon: Crown, isVipHighlight: true },
+                      { id: 'efectivo', label: 'Efectivo', icon: Banknote },
+                      { id: 'tarjeta_debito', label: 'Débito', icon: CreditCard },
+                      { id: 'tarjeta_credito', label: 'Crédito', icon: CreditCard },
+                      { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
+                    ]
+                  : [
+                      { id: 'tarjeta_debito', label: 'Débito', icon: CreditCard },
+                      { id: 'tarjeta_credito', label: 'Crédito', icon: CreditCard },
+                      { id: 'efectivo', label: 'Efectivo', icon: Banknote },
+                      { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
+                    ]
+                ).map((m) => {
                   const Icon = m.icon;
                   const selected = paymentMethod === m.id;
                   const isVipBtn = (m as any).isVipHighlight;
