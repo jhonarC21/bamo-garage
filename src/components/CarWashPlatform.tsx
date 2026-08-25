@@ -528,7 +528,7 @@ export const CarWashPlatform: React.FC = () => {
                     {VEHICLE_TYPES.find((v) => v.id === selectedVehicleType)?.shortLabel}
                   </span>
                 </label>
-                <div className="grid grid-cols-5 gap-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1">
                   {VEHICLE_TYPES.map((vt) => (
                     <button
                       key={vt.id}

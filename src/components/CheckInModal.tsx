@@ -383,7 +383,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
               <label className="block text-zinc-300 font-semibold text-[11px] mb-1.5">
                 Tipo de Vehículo * (Para catálogo de servicios de lavado)
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5">
                 {VEHICLE_TYPES.map((vt) => (
                   <button
                     key={vt.id}

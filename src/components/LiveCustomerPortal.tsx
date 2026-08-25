@@ -28,7 +28,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
-import { calculateParkingFee, formatDateTime, formatTimeOnly } from '../utils/pricing';
+import { calculateParkingFee, formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
 import { AccessorySaleItem, WashService, ParkingSession, VEHICLE_TYPES, VehicleType } from '../types';
 
 interface LiveCustomerPortalProps {
@@ -449,6 +449,17 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     ? session.valetParkingFee || settings.valetParkingPrice || 2000
     : 0;
   const grandTotal = pricing.totalParkingCost + washTotal + accTotal + valetTotal;
+  const isDebitAllowed = grandTotal > 1200;
+
+  // Resolve vehicle type and compatible wash services
+  const clientVehicleRecord = getVehicleByPlate(session.plate);
+  const clientVehicleType: VehicleType = session.vehicleType || clientVehicleRecord?.vehicleType || 'sedan';
+  const clientVehicleTypeObj = VEHICLE_TYPES.find((v) => v.id === clientVehicleType);
+
+  const availableClientWashServices = (washServices || []).filter((s) => {
+    if (!s.compatibleVehicleTypes || s.compatibleVehicleTypes.length === 0) return true;
+    return s.compatibleVehicleTypes.includes(clientVehicleType);
+  });
 
   return (
     <div className="min-h-screen bg-[#07080C] text-zinc-100 flex flex-col items-center justify-start py-4 px-3 sm:px-6">
@@ -970,13 +981,13 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                 </div>
                 {clientVehicleTypeObj && (
                   <span className="bg-purple-900/60 text-purple-200 border border-purple-700/60 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
-                    {clientVehicleTypeObj.name}
+                    {clientVehicleTypeObj.label}
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-zinc-400">
                 Mostrando únicamente los servicios compatibles con tu tipo de vehículo (
-                <strong className="text-zinc-200">{clientVehicleTypeObj?.name || 'General'}</strong>) en el{' '}
+                <strong className="text-zinc-200">{clientVehicleTypeObj?.label || 'General'}</strong>) en el{' '}
                 <strong className="text-zinc-200 font-mono">Puesto #{spotNumber}</strong>. El servicio se cargará a tu estadía y cancelarás en caja al momento de salir.
               </p>
             </div>
@@ -1244,7 +1255,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                   <span>⏱️ Tiempo estimado: ~{selectedWashService.durationMinutes} min</span>
                   <span>•</span>
                   <span>🚗 Vehículo: {session.plate}</span>
-                  {clientVehicleTypeObj && <span>({clientVehicleTypeObj.name})</span>}
+                  {clientVehicleTypeObj && <span>({clientVehicleTypeObj.label})</span>}
                 </div>
               </div>
 

@@ -682,7 +682,7 @@ export const VehiclesDatabase: React.FC = () => {
                 <label className="block text-zinc-300 font-semibold mb-1.5 flex items-center justify-between">
                   <span>Tipo de Vehículo * (Asociación para catálogo de lavado)</span>
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5">
                   {VEHICLE_TYPES.map((vt) => (
                     <button
                       key={vt.id}

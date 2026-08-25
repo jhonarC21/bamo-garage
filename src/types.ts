@@ -17,6 +17,7 @@ export type VehicleType =
   | 'hatchback_citycar'
   | 'sedan'
   | 'suv_station'
+  | 'camioneta_pickup'
   | 'minivan'
   | 'van_furgon';
 
@@ -45,6 +46,12 @@ export const VEHICLE_TYPES: VehicleTypeOption[] = [
     label: 'SUV / Station Wagon',
     shortLabel: 'SUV / Station',
     description: 'Crossover, SUV compactas y familiares medianos',
+  },
+  {
+    id: 'camioneta_pickup',
+    label: 'Camioneta / Pick Up',
+    shortLabel: 'Camioneta / Pick Up',
+    description: 'Camionetas cabina simple, doble cabina y pick-up',
   },
   {
     id: 'minivan',

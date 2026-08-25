@@ -12,7 +12,7 @@ import {
   ArrowRightLeft,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
-import { ParkingSpot, ParkingSession } from '../types';
+import { ParkingSpot, ParkingSession, VEHICLE_TYPES, VehicleType } from '../types';
 import { formatCLP } from '../utils/pricing';
 
 interface EditSessionModalProps {
@@ -36,6 +36,7 @@ export const EditSessionModal: React.FC<EditSessionModalProps> = ({
   const [model, setModel] = useState('');
   const [color, setColor] = useState('');
   const [year, setYear] = useState<string>('');
+  const [vehicleType, setVehicleType] = useState<VehicleType>('sedan');
 
   // Manual Entry Time
   const [isManualEntryTime, setIsManualEntryTime] = useState(false);
@@ -80,6 +81,11 @@ export const EditSessionModal: React.FC<EditSessionModalProps> = ({
 
       const vehicle = getVehicleByPlate(sess.plate);
       setIsVIP(!!vehicle?.isVIP);
+      if (sess.vehicleType) {
+        setVehicleType(sess.vehicleType);
+      } else if (vehicle?.vehicleType) {
+        setVehicleType(vehicle.vehicleType);
+      }
 
       setHasValetParking(!!sess.hasValetParking);
       setValetFee(String(sess.valetParkingFee ?? settings.valetParkingPrice ?? 2000));
@@ -108,6 +114,7 @@ export const EditSessionModal: React.FC<EditSessionModalProps> = ({
       model: model.trim() || 'Desconocido',
       color: color.trim() || 'Desconocido',
       year: year ? parseInt(year, 10) : undefined,
+      vehicleType,
       clientName: clientName.trim() || undefined,
       clientRut: clientRut.trim() || undefined,
       clientPhone: clientPhone.trim() || undefined,
@@ -263,9 +270,37 @@ export const EditSessionModal: React.FC<EditSessionModalProps> = ({
 
           {/* Vehicle Info */}
           <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 space-y-3">
-            <div className="font-semibold text-zinc-200 flex items-center gap-1.5 border-b border-zinc-800 pb-1.5">
-              <Car className="w-3.5 h-3.5 text-indigo-400" />
-              Datos del Vehículo
+            <div className="font-semibold text-zinc-200 flex items-center justify-between border-b border-zinc-800 pb-1.5">
+              <span className="flex items-center gap-1.5">
+                <Car className="w-3.5 h-3.5 text-indigo-400" />
+                Datos del Vehículo
+              </span>
+              <span className="text-[10px] text-zinc-400">
+                Segmentación para servicios y lavados
+              </span>
+            </div>
+
+            {/* Vehicle Type Selector */}
+            <div>
+              <label className="block text-zinc-300 font-semibold text-[11px] mb-1.5">
+                Tipo de Vehículo *
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5">
+                {VEHICLE_TYPES.map((vt) => (
+                  <button
+                    key={vt.id}
+                    type="button"
+                    onClick={() => setVehicleType(vt.id)}
+                    className={`p-2 rounded-xl border text-center transition flex flex-col items-center justify-center gap-0.5 ${
+                      vehicleType === vt.id
+                        ? 'bg-indigo-600/30 border-indigo-500 text-white font-bold shadow-md shadow-indigo-600/20'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold leading-tight">{vt.shortLabel}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">

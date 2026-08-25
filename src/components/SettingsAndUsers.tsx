@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP } from '../utils/pricing';
-import { AppUser, UserRole, WashService, AccessoryProduct, AccessoryCategory, ACCESSORY_CATEGORIES } from '../types';
+import { AppUser, UserRole, WashService, AccessoryProduct, AccessoryCategory, ACCESSORY_CATEGORIES, VehicleType, VEHICLE_TYPES } from '../types';
 
 export const SettingsAndUsers: React.FC = () => {
   const {
@@ -102,6 +102,9 @@ export const SettingsAndUsers: React.FC = () => {
   const [washPrice, setWashPrice] = useState('8000');
   const [washDuration, setWashDuration] = useState('30');
   const [washCategory, setWashCategory] = useState<'exterior' | 'interior' | 'completo' | 'detailing'>('completo');
+  const [washCompatibleTypes, setWashCompatibleTypes] = useState<VehicleType[]>(VEHICLE_TYPES.map((v) => v.id));
+  const [washAllTypes, setWashAllTypes] = useState(true);
+  const [washFilterType, setWashFilterType] = useState<'all' | VehicleType>('all');
 
   // --- Accessory Modal State ---
   const [isShopModalOpen, setIsShopModalOpen] = useState(false);
@@ -228,6 +231,14 @@ export const SettingsAndUsers: React.FC = () => {
     const priceNum = parseFloat(washPrice) || 5000;
     const durNum = parseInt(washDuration, 10) || 30;
 
+    const resolvedCompatibleTypes = washAllTypes
+      ? VEHICLE_TYPES.map((v) => v.id)
+      : washCompatibleTypes.length > 0
+      ? washCompatibleTypes
+      : VEHICLE_TYPES.map((v) => v.id);
+
+    const primaryVehicleType = resolvedCompatibleTypes.length === 1 ? resolvedCompatibleTypes[0] : 'all';
+
     if (editingWash) {
       updateWashService({
         ...editingWash,
@@ -236,6 +247,8 @@ export const SettingsAndUsers: React.FC = () => {
         price: priceNum,
         durationMinutes: durNum,
         category: washCategory,
+        compatibleVehicleTypes: resolvedCompatibleTypes,
+        vehicleType: primaryVehicleType,
       });
     } else {
       addWashService({
@@ -244,6 +257,8 @@ export const SettingsAndUsers: React.FC = () => {
         price: priceNum,
         durationMinutes: durNum,
         category: washCategory,
+        compatibleVehicleTypes: resolvedCompatibleTypes,
+        vehicleType: primaryVehicleType,
       });
     }
     setIsWashModalOpen(false);
@@ -705,14 +720,14 @@ export const SettingsAndUsers: React.FC = () => {
       {/* TAB 2: SUBCATEGORÍAS DE LAVADO */}
       {activeTab === 'wash' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-zinc-900/60 p-4 rounded-xl border border-zinc-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/60 p-4 rounded-xl border border-zinc-800">
             <div>
               <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-cyan-400" />
                 Edición de Subcategorías y Servicios de Lavado
               </h3>
               <p className="text-xs text-zinc-400">
-                Agregue, edite precios y cambie duraciones de los servicios que se ofrecen en el túnel de lavado y portal QR.
+                Agregue, edite precios, asocie a tipos de vehículo y cambie duraciones de los servicios para el túnel de lavado y portal QR.
               </p>
             </div>
 
@@ -724,66 +739,159 @@ export const SettingsAndUsers: React.FC = () => {
                 setWashPrice('8000');
                 setWashDuration('30');
                 setWashCategory('completo');
+                setWashCompatibleTypes(VEHICLE_TYPES.map((v) => v.id));
+                setWashAllTypes(true);
                 setIsWashModalOpen(true);
               }}
-              className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-3.5 py-2 rounded-xl font-bold text-xs shadow-md transition whitespace-nowrap"
+              className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-3.5 py-2 rounded-xl font-bold text-xs shadow-md transition whitespace-nowrap self-start sm:self-auto"
             >
               <Plus className="w-3.5 h-3.5" />
               Nuevo Servicio de Lavado
             </button>
           </div>
 
+          {/* Vehicle Type Filter Bar */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            <span className="text-xs text-zinc-400 flex items-center gap-1 whitespace-nowrap mr-1">
+              <Car className="w-3.5 h-3.5 text-cyan-400" />
+              Filtrar por Vehículo:
+            </span>
+            <button
+              type="button"
+              onClick={() => setWashFilterType('all')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                washFilterType === 'all'
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Todos ({washServices.length})
+            </button>
+            {VEHICLE_TYPES.map((vt) => {
+              const count = washServices.filter(
+                (s) => !s.compatibleVehicleTypes || s.compatibleVehicleTypes.length === 0 || s.compatibleVehicleTypes.includes(vt.id)
+              ).length;
+              return (
+                <button
+                  key={vt.id}
+                  type="button"
+                  onClick={() => setWashFilterType(vt.id)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
+                    washFilterType === vt.id
+                      ? 'bg-cyan-600 text-white shadow-sm'
+                      : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <span>{vt.shortLabel}</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-800/80 font-mono">
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {washServices.map((w) => (
-              <div key={w.id} className="bg-[#0F1117] border border-zinc-800 rounded-2xl p-4 shadow-xl flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
-                      {w.category}
-                    </span>
-                    <span className="text-xs text-zinc-400 flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-amber-400" />
-                      {w.durationMinutes} min
-                    </span>
-                  </div>
+            {washServices
+              .filter((w) => {
+                if (washFilterType === 'all') return true;
+                if (!w.compatibleVehicleTypes || w.compatibleVehicleTypes.length === 0) return true;
+                return w.compatibleVehicleTypes.includes(washFilterType);
+              })
+              .map((w) => {
+                const isAllVehicles =
+                  !w.compatibleVehicleTypes ||
+                  w.compatibleVehicleTypes.length === 0 ||
+                  w.compatibleVehicleTypes.length === VEHICLE_TYPES.length;
 
-                  <h4 className="font-bold text-sm text-zinc-100 mt-2">{w.name}</h4>
-                  <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{w.description}</p>
-
-                  <div className="mt-3 text-lg font-mono font-bold text-emerald-400">
-                    {formatCLP(w.price)}
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-end gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingWash(w);
-                      setWashName(w.name);
-                      setWashDescription(w.description);
-                      setWashPrice(String(w.price));
-                      setWashDuration(String(w.durationMinutes));
-                      setWashCategory(w.category);
-                      setIsWashModalOpen(true);
-                    }}
-                    className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                return (
+                  <div
+                    key={w.id}
+                    className="bg-[#0F1117] border border-zinc-800 rounded-2xl p-4 shadow-xl flex flex-col justify-between hover:border-cyan-500/30 transition"
                   >
-                    <Edit2 className="w-3 h-3" /> Editar
-                  </button>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+                          {w.category}
+                        </span>
+                        <span className="text-xs text-zinc-400 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          {w.durationMinutes} min
+                        </span>
+                      </div>
 
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`¿Eliminar servicio "${w.name}"?`)) {
-                        deleteWashService(w.id);
-                      }
-                    }}
-                    className="p-1.5 text-zinc-500 hover:text-rose-400 rounded hover:bg-zinc-800 transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+                      <h4 className="font-bold text-sm text-zinc-100 mt-2">{w.name}</h4>
+                      <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{w.description}</p>
+
+                      {/* Associated Vehicle Types */}
+                      <div className="mt-3 pt-2.5 border-t border-zinc-800/80">
+                        <div className="text-[10px] text-zinc-400 font-semibold mb-1 flex items-center gap-1">
+                          <Car className="w-3 h-3 text-cyan-400" />
+                          Tipo de Vehículo Asociado:
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {isAllVehicles ? (
+                            <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-700/50 px-2 py-0.5 rounded text-[10px] font-semibold">
+                              ✓ Todos los tipos de vehículo
+                            </span>
+                          ) : (
+                            w.compatibleVehicleTypes?.map((vt) => (
+                              <span
+                                key={vt}
+                                className="bg-indigo-950/80 text-indigo-300 border border-indigo-700/50 px-2 py-0.5 rounded text-[10px] font-semibold"
+                              >
+                                {VEHICLE_TYPES.find((t) => t.id === vt)?.shortLabel || vt}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 text-lg font-mono font-bold text-emerald-400">
+                        {formatCLP(w.price)}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-end gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingWash(w);
+                          setWashName(w.name);
+                          setWashDescription(w.description);
+                          setWashPrice(String(w.price));
+                          setWashDuration(String(w.durationMinutes));
+                          setWashCategory(w.category);
+                          const comp =
+                            w.compatibleVehicleTypes && w.compatibleVehicleTypes.length > 0
+                              ? w.compatibleVehicleTypes
+                              : VEHICLE_TYPES.map((v) => v.id);
+                          setWashCompatibleTypes(comp);
+                          setWashAllTypes(
+                            !w.compatibleVehicleTypes ||
+                              w.compatibleVehicleTypes.length === 0 ||
+                              w.compatibleVehicleTypes.length === VEHICLE_TYPES.length
+                          );
+                          setIsWashModalOpen(true);
+                        }}
+                        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                      >
+                        <Edit2 className="w-3 h-3" /> Editar
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`¿Eliminar servicio "${w.name}"?`)) {
+                            deleteWashService(w.id);
+                          }
+                        }}
+                        className="p-1.5 text-zinc-500 hover:text-rose-400 rounded hover:bg-zinc-800 transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}
@@ -1916,7 +2024,7 @@ export const SettingsAndUsers: React.FC = () => {
       {/* Modal: New / Edit Wash Service */}
       {isWashModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs">
+          <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-cyan-400" />
@@ -1930,7 +2038,7 @@ export const SettingsAndUsers: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveWash} className="space-y-3">
+            <form onSubmit={handleSaveWash} className="space-y-4">
               <div>
                 <label className="block font-semibold text-zinc-300 mb-1">Nombre del Servicio *</label>
                 <input
@@ -1941,6 +2049,111 @@ export const SettingsAndUsers: React.FC = () => {
                   className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-2.5 text-white focus:border-cyan-500 focus:outline-none"
                   placeholder="Ej: Lavado Full Detailing + Encerado"
                 />
+              </div>
+
+              {/* Vehicle Type Association Selector */}
+              <div className="bg-zinc-950/70 border border-zinc-800 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-zinc-200 flex items-center gap-1.5 text-xs">
+                    <Car className="w-3.5 h-3.5 text-cyan-400" />
+                    Tipo(s) de Vehículo al que se asocia este servicio *
+                  </label>
+                  <span className="text-[10px] text-cyan-300 font-mono font-semibold">
+                    {washAllTypes
+                      ? 'Todos (6/6)'
+                      : `${washCompatibleTypes.length}/${VEHICLE_TYPES.length} seleccionados`}
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  Seleccione si este servicio estará disponible para todos los autos o solo para categorías específicas (ej: solo Camionetas / Pick Up o Sedanes).
+                </p>
+
+                {/* Quick Toggle: All vs Custom */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWashAllTypes(true);
+                      setWashCompatibleTypes(VEHICLE_TYPES.map((v) => v.id));
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                      washAllTypes
+                        ? 'bg-cyan-600 text-white shadow-sm'
+                        : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    ✓ Aplica a Todos los Vehículos
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWashAllTypes(false);
+                      if (washCompatibleTypes.length === VEHICLE_TYPES.length) {
+                        setWashCompatibleTypes(['sedan']);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                      !washAllTypes
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Personalizar Selección
+                  </button>
+                </div>
+
+                {/* Grid of 6 Vehicle Types */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                  {VEHICLE_TYPES.map((vt) => {
+                    const isSelected = washCompatibleTypes.includes(vt.id);
+                    return (
+                      <button
+                        key={vt.id}
+                        type="button"
+                        onClick={() => {
+                          let nextTypes: VehicleType[];
+                          if (isSelected) {
+                            nextTypes = washCompatibleTypes.filter((id) => id !== vt.id);
+                          } else {
+                            nextTypes = [...washCompatibleTypes, vt.id];
+                          }
+                          setWashCompatibleTypes(nextTypes);
+                          setWashAllTypes(nextTypes.length === VEHICLE_TYPES.length);
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between gap-1 ${
+                          isSelected
+                            ? 'bg-cyan-950/50 border-cyan-500/80 text-white shadow-sm ring-1 ring-cyan-500/30'
+                            : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-[11px] leading-tight text-zinc-100">
+                            {vt.label}
+                          </span>
+                          <span
+                            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                              isSelected
+                                ? 'bg-cyan-500 text-black'
+                                : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                            }`}
+                          >
+                            {isSelected ? '✓' : ''}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-zinc-400 leading-tight">
+                          {vt.description}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {washCompatibleTypes.length === 0 && (
+                  <p className="text-[11px] text-rose-400 font-semibold pt-1">
+                    ⚠️ Debe seleccionar al menos un tipo de vehículo compatible.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -2004,7 +2217,8 @@ export const SettingsAndUsers: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition shadow-lg shadow-cyan-600/30"
+                  disabled={washCompatibleTypes.length === 0}
+                  className="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold transition shadow-lg shadow-cyan-600/30"
                 >
                   Guardar Servicio
                 </button>

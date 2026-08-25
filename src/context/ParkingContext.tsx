@@ -816,6 +816,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       model?: string;
       color?: string;
       year?: number;
+      vehicleType?: VehicleType;
       clientName?: string;
       clientRut?: string;
       clientPhone?: string;

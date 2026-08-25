@@ -82,6 +82,28 @@ export const INITIAL_WASH_SERVICES: WashService[] = [
     compatibleVehicleTypes: ['suv_station'],
   },
 
+  // --- Camioneta / Pick Up ---
+  {
+    id: 'wash_pickup_simple',
+    name: 'Lavado Exterior Simple (Camioneta / Pick Up)',
+    description: 'Lavado a presión de carrocería, enjuague de pick-up / tolva de carga, secado manual y abrillantador de neumáticos.',
+    price: 9000,
+    durationMinutes: 35,
+    category: 'exterior',
+    vehicleType: 'camioneta_pickup',
+    compatibleVehicleTypes: ['camioneta_pickup'],
+  },
+  {
+    id: 'wash_pickup_completo',
+    name: 'Lavado Completo Cabina + Pick Up',
+    description: 'Exterior completo con tolva + aspirado profundo de cabina simple o doble, limpieza de tapiz, plásticos, vidrios y fragancia.',
+    price: 17000,
+    durationMinutes: 55,
+    category: 'completo',
+    vehicleType: 'camioneta_pickup',
+    compatibleVehicleTypes: ['camioneta_pickup'],
+  },
+
   // --- Mini Van ---
   {
     id: 'wash_minivan_simple',
@@ -134,7 +156,7 @@ export const INITIAL_WASH_SERVICES: WashService[] = [
     price: 28000,
     durationMinutes: 90,
     category: 'interior',
-    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'minivan', 'van_furgon'],
+    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'camioneta_pickup', 'minivan', 'van_furgon'],
   },
   {
     id: 'wash_cera_carnauba',
@@ -143,7 +165,7 @@ export const INITIAL_WASH_SERVICES: WashService[] = [
     price: 15000,
     durationMinutes: 45,
     category: 'detailing',
-    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'minivan', 'van_furgon'],
+    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'camioneta_pickup', 'minivan', 'van_furgon'],
   },
   {
     id: 'wash_motor_vapor',
@@ -152,7 +174,7 @@ export const INITIAL_WASH_SERVICES: WashService[] = [
     price: 16000,
     durationMinutes: 45,
     category: 'detailing',
-    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'minivan', 'van_furgon'],
+    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'camioneta_pickup', 'minivan', 'van_furgon'],
   },
 ];
 
