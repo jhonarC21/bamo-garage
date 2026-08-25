@@ -25,10 +25,11 @@ import {
   CreditCard,
   Tag,
   Gift,
+  Lock,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
-import { calculateParkingFee, formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
-import { AccessorySaleItem, WashService, ParkingSession } from '../types';
+import { calculateParkingFee, formatDateTime, formatTimeOnly } from '../utils/pricing';
+import { AccessorySaleItem, WashService, ParkingSession, VEHICLE_TYPES, VehicleType } from '../types';
 
 interface LiveCustomerPortalProps {
   ticketNumber?: string | null;
@@ -48,6 +49,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     settings,
     washServices,
     accessoryProducts,
+    getVehicleByPlate,
     requestCustomerWashOrder,
     requestCustomerAccessories,
   } = useParking();
@@ -734,22 +736,17 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
             {/* CONSULTA DE FORMA DE PAGO AL CLIENTE: EFECTIVO O DÉBITO */}
             <div className="bg-gradient-to-b from-zinc-900 via-[#10121A] to-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl">
               <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-black text-sm text-zinc-100 flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-indigo-400" />
-                    ¿Qué forma de pago deseas usar al salir?
-                  </h3>
-                  <span className="text-[10px] text-zinc-400 font-mono">
-                    Total actual: <strong className="text-white text-xs">{formatCLP(grandTotal)}</strong>
-                  </span>
-                </div>
+                <h3 className="font-black text-sm text-zinc-100 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-indigo-400" />
+                  ¿Qué forma de pago prefieres utilizar al salir?
+                </h3>
                 <p className="text-[11px] text-zinc-400">
                   Indica tu preferencia de pago para la caseta de salida. Puedes elegir entre <strong className="text-zinc-200">Efectivo</strong> o <strong className="text-zinc-200">Débito</strong>.
                 </p>
               </div>
 
               {/* 2 Payment Options Buttons */}
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {/* 1. Efectivo */}
                 <button
                   type="button"
@@ -771,136 +768,99 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                       <span>Efectivo</span>
                     </div>
                     <p className="text-[10px] text-zinc-400 leading-tight">
-                      Paga en caja con efectivo exacto o recibe vuelto al instante.
+                      Paga directamente en la caseta de caja al retirar tu vehículo.
                     </p>
                   </div>
-                  <div className="mt-2 text-[10px] font-mono text-emerald-400/90 font-bold">
-                    Sin monto mínimo
+                  <div className="mt-2 text-[10px] font-mono text-emerald-400/90 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    Disponible para cualquier estadía
                   </div>
                 </button>
 
-                {/* 2. Débito */}
+                {/* 2. Débito (Strict threshold: only enabled if grandTotal > 1200) */}
                 <button
                   type="button"
-                  onClick={() => setCustomerPaymentChoice('debito')}
+                  disabled={!isDebitAllowed}
+                  onClick={() => {
+                    if (isDebitAllowed) {
+                      setCustomerPaymentChoice('debito');
+                    }
+                  }}
                   className={`p-3.5 rounded-xl border-2 transition text-left flex flex-col justify-between relative overflow-hidden ${
-                    customerPaymentChoice === 'debito'
+                    !isDebitAllowed
+                      ? 'bg-zinc-950/80 border-zinc-850 text-zinc-600 cursor-not-allowed opacity-75'
+                      : customerPaymentChoice === 'debito'
                       ? 'bg-indigo-950/50 border-indigo-500 text-white shadow-lg shadow-indigo-950/40 ring-1 ring-indigo-400/40'
                       : 'bg-zinc-900/90 border-zinc-800 hover:border-zinc-700 text-zinc-300'
                   }`}
                 >
-                  {customerPaymentChoice === 'debito' && (
+                  {isDebitAllowed && customerPaymentChoice === 'debito' && (
                     <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center font-bold">
                       <Check className="w-3.5 h-3.5" />
                     </div>
                   )}
                   <div className="space-y-1">
-                    <div className="flex items-center gap-1.5 font-extrabold text-xs sm:text-sm text-indigo-400">
+                    <div
+                      className={`flex items-center gap-1.5 font-extrabold text-xs sm:text-sm ${
+                        isDebitAllowed ? 'text-indigo-400' : 'text-zinc-500'
+                      }`}
+                    >
                       <CreditCard className="w-4 h-4" />
-                      <span>Débito</span>
+                      <span>Tarjeta de Débito</span>
                     </div>
                     <p className="text-[10px] text-zinc-400 leading-tight">
-                      Tarjeta Redcompra / Débito mediante terminal POS en caseta.
+                      Terminal POS Redcompra en caseta de salida.
                     </p>
                   </div>
-                  <div className="mt-2 text-[10px] font-mono text-indigo-300 font-bold">
-                    Mínimo $1.200 CLP
+                  <div className="mt-2 text-[10px] font-mono font-bold flex items-center gap-1">
+                    {isDebitAllowed ? (
+                      <span className="text-indigo-300 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-indigo-400" />
+                        Habilitado (Consumo superior a $1.200)
+                      </span>
+                    ) : (
+                      <span className="text-amber-500/90 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-amber-500" />
+                        No habilitado (Requiere consumo superior a $1.200)
+                      </span>
+                    )}
                   </div>
                 </button>
               </div>
 
               {/* FEEDBACK BASED ON CHOICE */}
               {customerPaymentChoice === 'efectivo' && (
-                <div className="p-3.5 bg-emerald-950/40 border border-emerald-600/40 rounded-xl space-y-1.5 animate-fadeIn">
+                <div className="p-3 bg-emerald-950/40 border border-emerald-600/40 rounded-xl space-y-1 animate-fadeIn">
                   <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                    <span>Pago en Efectivo Seleccionado</span>
+                    <span>Preferencia Registrada: Pago en Efectivo</span>
                   </div>
                   <p className="text-[11px] text-zinc-300 leading-snug">
-                    Total actual a cancelar: <strong className="text-emerald-300 font-mono text-xs">{formatCLP(grandTotal)}</strong>. Podrás pagar directamente en efectivo al momento de retirar tu vehículo en la caseta.
+                    Podrás pagar directamente en efectivo al momento de retirar tu vehículo en la caseta de salida.
                   </p>
                 </div>
               )}
 
-              {customerPaymentChoice === 'debito' && grandTotal < 1200 && (
-                <div className="p-4 bg-gradient-to-b from-amber-950/60 via-amber-950/40 to-zinc-900 border-2 border-amber-500/60 rounded-2xl space-y-3.5 animate-fadeIn">
-                  <div className="flex items-start gap-2.5">
-                    <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <div className="font-extrabold text-xs sm:text-sm text-amber-300">
-                        Monto Mínimo con Débito: $1.200 CLP
-                      </div>
-                      <p className="text-[11px] text-zinc-200 leading-snug">
-                        {pricing.elapsedMinutes <= 30
-                          ? `Tu estadía actual está en el 1er tramo (${formatCLP(grandTotal)}), por lo que faltan ${formatCLP(1200 - grandTotal)} para alcanzar el monto mínimo requerido para pagos con tarjeta de débito.`
-                          : `Tu monto actual acumulado es de ${formatCLP(grandTotal)}, por lo que faltan ${formatCLP(1200 - grandTotal)} para alcanzar el mínimo de $1.200 CLP con débito.`}
-                      </p>
-                    </div>
+              {isDebitAllowed && customerPaymentChoice === 'debito' && (
+                <div className="p-3 bg-indigo-950/40 border border-indigo-600/40 rounded-xl space-y-1 animate-fadeIn">
+                  <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span>Preferencia Registrada: Tarjeta de Débito</span>
                   </div>
-
-                  {/* SHOP PRODUCTS SUGGESTION (UPSELL) */}
-                  <div className="bg-zinc-950/80 border border-amber-500/30 rounded-xl p-3 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-amber-200 flex items-center gap-1.5">
-                        <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
-                        ¡Agrega un producto de la tienda para alcanzar el mínimo!
-                      </span>
-                      <span className="text-[10px] text-amber-400 font-mono font-semibold">
-                        Faltan {formatCLP(1200 - grandTotal)}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                      {accessoryProducts
-                        .filter((p) => p.stock > 0)
-                        .slice(0, 4)
-                        .map((prod) => (
-                          <div
-                            key={prod.id}
-                            className="bg-zinc-900 border border-zinc-750 hover:border-amber-500/50 rounded-lg p-2.5 flex items-center justify-between gap-2 transition"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="font-bold text-zinc-100 text-[11px] truncate">
-                                {prod.name}
-                              </div>
-                              <div className="text-[10px] font-mono text-amber-400 font-bold">
-                                {formatCLP(prod.price)}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleQuickAddShopProduct(prod)}
-                              className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 shadow-sm transition flex-shrink-0"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>Agregar</span>
-                            </button>
-                          </div>
-                        ))}
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-[10px]">
-                      <span className="text-zinc-400">¿No deseas agregar productos?</span>
-                      <button
-                        type="button"
-                        onClick={() => setCustomerPaymentChoice('efectivo')}
-                        className="text-emerald-400 hover:text-emerald-300 font-bold underline transition"
-                      >
-                        Pagar en Efectivo ({formatCLP(grandTotal)})
-                      </button>
-                    </div>
-                  </div>
+                  <p className="text-[11px] text-zinc-300 leading-snug">
+                    Tu consumo califica para pago con tarjeta de débito en la caseta de salida.
+                  </p>
                 </div>
               )}
 
-              {customerPaymentChoice === 'debito' && grandTotal >= 1200 && (
-                <div className="p-3.5 bg-emerald-950/40 border border-emerald-600/40 rounded-xl space-y-1.5 animate-fadeIn">
-                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                    <span>¡Monto Habilitado para Débito!</span>
+              {!isDebitAllowed && (
+                <div className="p-3 bg-amber-950/30 border border-amber-800/40 rounded-xl space-y-1 text-xs">
+                  <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+                    <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                    <span>Condición para Pago con Tarjeta de Débito</span>
                   </div>
-                  <p className="text-[11px] text-zinc-300 leading-snug">
-                    Total actual a cancelar: <strong className="text-emerald-300 font-mono text-xs">{formatCLP(grandTotal)}</strong> (Cumple con el monto mínimo de $1.200 CLP). Podrás pagar con tu tarjeta de débito en la caseta de salida.
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    Las transacciones con tarjeta de débito se habilitan exclusivamente para montos superiores a <strong className="text-zinc-200">$1.200 CLP</strong>. Para consumos iguales o inferiores (como el tramo inicial de $900), la cancelación en caseta debe realizarse en <strong className="text-zinc-200">Efectivo</strong>.
                   </p>
                 </div>
               )}
@@ -977,7 +937,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                     <Sparkles className="w-4 h-4 text-purple-400 group-hover:scale-110 transition" />
                   </div>
                   <p className="text-[10px] text-zinc-400">
-                    Exterior, Full Detailing o Tapiz mientras estás estacionado.
+                    Servicios disponibles para tu tipo de vehículo.
                   </p>
                 </button>
 
@@ -990,7 +950,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                     <ShoppingBag className="w-4 h-4 text-amber-400 group-hover:scale-110 transition" />
                   </div>
                   <p className="text-[10px] text-zinc-400">
-                    Aromatizantes, plumillas y cargadores con pago al salir.
+                    Aromatizantes, plumillas y artículos para tu vehículo.
                   </p>
                 </button>
               </div>
@@ -998,83 +958,95 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: SOLICITAR LAVADO & ESTÉTICA VEHICULAR */}
+        {/* TAB 2: SOLICITAR LAVADO & ESTÉTICA VEHICULAR (FILTERED BY VEHICLE TYPE & NO PRICES DISPLAYED) */}
         {activeTab === 'wash' && (
           <div className="p-4 sm:p-5 space-y-4 text-xs">
-            <div className="bg-purple-950/20 border border-purple-800/40 rounded-2xl p-3.5 space-y-1">
-              <div className="font-bold text-purple-300 flex items-center gap-1.5 text-xs">
-                <Sparkles className="w-4 h-4 text-purple-400" />
-                Catálogo de Lavados & Estética Vehicular
+            {/* Header with Vehicle Type Badge */}
+            <div className="bg-purple-950/20 border border-purple-800/40 rounded-2xl p-3.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="font-bold text-purple-300 flex items-center gap-1.5 text-xs">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  Catálogo de Lavados & Estética
+                </div>
+                {clientVehicleTypeObj && (
+                  <span className="bg-purple-900/60 text-purple-200 border border-purple-700/60 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                    {clientVehicleTypeObj.name}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-zinc-400">
-                Selecciona el servicio deseado para tu vehículo en el{' '}
-                <strong className="text-zinc-200 font-mono">Puesto #{spotNumber}</strong>. El costo se sumará a tu ticket y pagarás al salir.
+                Mostrando únicamente los servicios compatibles con tu tipo de vehículo (
+                <strong className="text-zinc-200">{clientVehicleTypeObj?.name || 'General'}</strong>) en el{' '}
+                <strong className="text-zinc-200 font-mono">Puesto #{spotNumber}</strong>. El servicio se cargará a tu estadía y cancelarás en caja al momento de salir.
               </p>
             </div>
 
-            {/* Services Grid */}
+            {/* Services Grid (Filtered by Vehicle Type, no prices shown) */}
             <div className="space-y-3">
-              {washServices.map((service) => {
-                const alreadyOrdered = session.washOrders?.some(
-                  (w) => w.serviceId === service.id && w.status !== 'delivered'
-                );
+              {availableClientWashServices.length === 0 ? (
+                <div className="p-6 text-center text-zinc-500 bg-zinc-900/50 border border-zinc-800 rounded-2xl">
+                  No hay servicios específicos configurados para este tipo de vehículo actualmente.
+                </div>
+              ) : (
+                availableClientWashServices.map((service) => {
+                  const alreadyOrdered = session.washOrders?.some(
+                    (w) => w.serviceId === service.id && w.status !== 'delivered'
+                  );
 
-                return (
-                  <div
-                    key={service.id}
-                    className="bg-zinc-900/90 border border-zinc-800 hover:border-purple-500/50 rounded-2xl p-4 transition space-y-2.5 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-sm text-zinc-100">{service.name}</h3>
-                          <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
-                            {service.category}
+                  return (
+                    <div
+                      key={service.id}
+                      className="bg-zinc-900/90 border border-zinc-800 hover:border-purple-500/50 rounded-2xl p-4 transition space-y-2.5 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-sm text-zinc-100">{service.name}</h3>
+                            <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+                              {service.category}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                            {service.description}
+                          </p>
+                        </div>
+                        <div className="text-right flex-shrink-0 font-mono">
+                          <div className="text-[10px] text-purple-300 bg-purple-950/80 border border-purple-800/40 px-2 py-0.5 rounded-lg flex items-center justify-end gap-1">
+                            <Clock className="w-3 h-3 text-purple-400" />
+                            ~{service.durationMinutes} min
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-zinc-800 pt-2.5 flex items-center justify-between">
+                        {alreadyOrdered ? (
+                          <div className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Servicio solicitado en este ticket
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-zinc-400">
+                            Cargado al ticket • Pago en caja al retirar
                           </span>
-                        </div>
-                        <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
-                          {service.description}
-                        </p>
-                      </div>
-                      <div className="text-right flex-shrink-0 font-mono">
-                        <div className="text-base font-extrabold text-purple-300">
-                          {formatCLP(service.price)}
-                        </div>
-                        <div className="text-[10px] text-zinc-400 flex items-center justify-end gap-1">
-                          <Clock className="w-3 h-3 text-zinc-500" />
-                          ~{service.durationMinutes} min
-                        </div>
+                        )}
+
+                        <button
+                          onClick={() => setSelectedWashService(service)}
+                          disabled={session.status !== 'active' || alreadyOrdered}
+                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ${
+                            alreadyOrdered
+                              ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                              : 'bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/30'
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          {alreadyOrdered ? 'Solicitado' : 'Solicitar Servicio'}
+                        </button>
                       </div>
                     </div>
-
-                    <div className="border-t border-zinc-800 pt-2.5 flex items-center justify-between">
-                      {alreadyOrdered ? (
-                        <div className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Servicio ya solicitado en este ticket
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-zinc-400">
-                          Pago al momento de retirar en caja
-                        </span>
-                      )}
-
-                      <button
-                        onClick={() => setSelectedWashService(service)}
-                        disabled={session.status !== 'active' || alreadyOrdered}
-                        className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ${
-                          alreadyOrdered
-                            ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                            : 'bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/30'
-                        }`}
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        {alreadyOrdered ? 'Solicitado' : 'Solicitar Servicio'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         )}
@@ -1088,7 +1060,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                 Tienda de Accesorios • Pre-ordenar para Entrega
               </div>
               <p className="text-[11px] text-zinc-400">
-                Pide artículos para tu auto con entrega inmediata o al momento de cancelar tu estadía.
+                Solicita artículos para tu auto con entrega inmediata o al momento de retirar tu estadía en caja.
               </p>
             </div>
 
@@ -1129,7 +1101,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
               </div>
             </div>
 
-            {/* Products List */}
+            {/* Products List (No price numbers displayed) */}
             <div className="space-y-2.5">
               {filteredAccessories.map((product) => {
                 const qtyInCart = shopCart[product.id] || 0;
@@ -1149,9 +1121,6 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                       </div>
                       <p className="text-[10px] text-zinc-400 line-clamp-1">{product.description}</p>
                       <div className="flex items-center gap-3">
-                        <span className="font-mono font-extrabold text-amber-300 text-xs">
-                          {formatCLP(product.price)}
-                        </span>
                         <span
                           className={`text-[9px] font-mono ${
                             isOutOfStock ? 'text-rose-400' : 'text-zinc-500'
@@ -1210,12 +1179,9 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                   <div className="flex items-center gap-2">
                     <ShoppingBag className="w-4 h-4 text-amber-400" />
                     <span className="font-bold text-zinc-100 text-xs">
-                      Pre-orden de Artículos ({totalCartCount})
+                      Pre-orden de Artículos ({totalCartCount} seleccionados)
                     </span>
                   </div>
-                  <span className="font-mono font-extrabold text-amber-300 text-sm">
-                    {formatCLP(totalCartAmount)}
-                  </span>
                 </div>
 
                 <div className="space-y-1">
@@ -1249,7 +1215,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
           </div>
         )}
 
-        {/* WASH CONFIRMATION MODAL */}
+        {/* WASH CONFIRMATION MODAL (NO PRICES SHOWN) */}
         {selectedWashService && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
             <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl w-full max-w-md p-5 text-white shadow-2xl space-y-4 animate-fadeIn">
@@ -1269,8 +1235,8 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
               <div className="bg-purple-950/30 border border-purple-800/40 rounded-xl p-3.5 space-y-2 text-xs">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-zinc-200 text-sm">{selectedWashService.name}</span>
-                  <span className="font-mono font-extrabold text-purple-300 text-base">
-                    {formatCLP(selectedWashService.price)}
+                  <span className="bg-purple-900/60 text-purple-200 border border-purple-700/60 px-2 py-0.5 rounded text-[10px] font-bold">
+                    {selectedWashService.category}
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-400">{selectedWashService.description}</p>
@@ -1278,6 +1244,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                   <span>⏱️ Tiempo estimado: ~{selectedWashService.durationMinutes} min</span>
                   <span>•</span>
                   <span>🚗 Vehículo: {session.plate}</span>
+                  {clientVehicleTypeObj && <span>({clientVehicleTypeObj.name})</span>}
                 </div>
               </div>
 

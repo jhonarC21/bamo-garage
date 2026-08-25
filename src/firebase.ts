@@ -11,15 +11,15 @@ const dbId =
     ? firebaseConfig.firestoreDatabaseId
     : undefined;
 
-// Configure Firestore with auto-detect long polling and ignoreUndefinedProperties
-// to ensure seamless connectivity across iframes, proxies, and preview containers
+// Configure Firestore with forced long polling and ignoreUndefinedProperties
+// to ensure seamless connectivity and prevent WebSocket connection drops across iframes and sandboxes
 export const db = dbId
   ? initializeFirestore(app, {
-      experimentalAutoDetectLongPolling: true,
+      experimentalForceLongPolling: true,
       ignoreUndefinedProperties: true,
     }, dbId)
   : initializeFirestore(app, {
-      experimentalAutoDetectLongPolling: true,
+      experimentalForceLongPolling: true,
       ignoreUndefinedProperties: true,
     });
 

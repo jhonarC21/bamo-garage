@@ -11,10 +11,12 @@ import {
   Check,
   Send,
   Search,
+  Filter,
+  Layers,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
-import { WashOrder, WashStatus } from '../types';
+import { WashOrder, WashStatus, VehicleType, VEHICLE_TYPES } from '../types';
 
 export const CarWashPlatform: React.FC = () => {
   const {
@@ -29,9 +31,11 @@ export const CarWashPlatform: React.FC = () => {
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [selectedSpot, setSelectedSpot] = useState<string>('');
   const [plate, setPlate] = useState('');
-  const [selectedServiceId, setSelectedServiceId] = useState<string>(washServices[0]?.id || '');
+  const [selectedVehicleType, setSelectedVehicleType] = useState<VehicleType>('sedan');
+  const [selectedServiceId, setSelectedServiceId] = useState<string>('');
   const [washerName, setWasherName] = useState('Juan Pablo R.');
   const [notes, setNotes] = useState('');
+  const [catalogFilterType, setCatalogFilterType] = useState<'all' | VehicleType>('all');
 
   // Kanban filters
   const pendingOrders = washOrders.filter((o) => o.status === 'pending');
@@ -41,7 +45,7 @@ export const CarWashPlatform: React.FC = () => {
 
   const occupiedSpots = spots.filter((s) => s.status === 'occupied' && s.currentSession);
 
-  // When spot is selected, auto-fill plate
+  // When spot is selected, auto-fill plate and vehicleType
   const handleSpotSelect = (spotVal: string) => {
     setSelectedSpot(spotVal);
     if (spotVal) {
@@ -49,15 +53,41 @@ export const CarWashPlatform: React.FC = () => {
       const spot = spots.find((s) => s.number === spotNum);
       if (spot?.currentSession) {
         setPlate(spot.currentSession.plate);
+        if (spot.currentSession.vehicleType) {
+          setSelectedVehicleType(spot.currentSession.vehicleType);
+        } else {
+          const vMatch = getVehicleByPlate(spot.currentSession.plate);
+          if (vMatch?.vehicleType) {
+            setSelectedVehicleType(vMatch.vehicleType);
+          }
+        }
       }
     }
   };
 
+  const handlePlateChange = (val: string) => {
+    const formatted = val.toUpperCase();
+    setPlate(formatted);
+    if (formatted.length >= 4) {
+      const match = getVehicleByPlate(formatted);
+      if (match?.vehicleType) {
+        setSelectedVehicleType(match.vehicleType);
+      }
+    }
+  };
+
+  // Filter services compatible with selected vehicle type
+  const compatibleWashServices = washServices.filter((s) => {
+    if (!s.compatibleVehicleTypes || s.compatibleVehicleTypes.length === 0) return true;
+    return s.compatibleVehicleTypes.includes(selectedVehicleType);
+  });
+
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!plate.trim() || !selectedServiceId) return;
+    const effectiveServiceId = selectedServiceId || compatibleWashServices[0]?.id;
+    if (!plate.trim() || !effectiveServiceId) return;
 
-    const service = washServices.find((s) => s.id === selectedServiceId);
+    const service = washServices.find((s) => s.id === effectiveServiceId);
     if (!service) return;
 
     addWashOrder({
@@ -75,10 +105,18 @@ export const CarWashPlatform: React.FC = () => {
     setIsNewOrderModalOpen(false);
     setPlate('');
     setSelectedSpot('');
+    setSelectedServiceId('');
     setNotes('');
   };
 
   const washersList = ['Juan Pablo R.', 'Marcos Soto', 'Cristian Vega', 'Esteban Muñoz'];
+
+  // Catalog filtered services
+  const displayedCatalogServices = washServices.filter((s) => {
+    if (catalogFilterType === 'all') return true;
+    if (!s.compatibleVehicleTypes || s.compatibleVehicleTypes.length === 0) return true;
+    return s.compatibleVehicleTypes.includes(catalogFilterType);
+  });
 
   return (
     <div className="space-y-6">
@@ -346,16 +384,44 @@ export const CarWashPlatform: React.FC = () => {
       </div>
 
       {/* Services Price Catalog */}
-      <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl p-5 text-white">
-        <h3 className="font-bold text-sm text-zinc-200 mb-3 flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-purple-400" />
-          Catálogo Oficial de Servicios de Lavado
-        </h3>
+      <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl p-5 text-white space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+          <div>
+            <h3 className="font-bold text-sm text-zinc-200 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              Catálogo Oficial de Servicios por Tipo de Vehículo
+            </h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Servicios calibrados específicamente por dimensiones y tipología vehicular
+            </p>
+          </div>
+
+          {/* Vehicle Type Filter for Catalog */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-zinc-400 flex items-center gap-1">
+              <Filter className="w-3.5 h-3.5 text-purple-400" />
+              Filtrar por:
+            </span>
+            <select
+              value={catalogFilterType}
+              onChange={(e) => setCatalogFilterType(e.target.value as any)}
+              className="bg-zinc-900 border border-zinc-750 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
+            >
+              <option value="all">Todos los Vehículos</option>
+              {VEHICLE_TYPES.map((vt) => (
+                <option key={vt.id} value={vt.id}>
+                  {vt.shortLabel}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {washServices.map((service) => (
+          {displayedCatalogServices.map((service) => (
             <div
               key={service.id}
-              className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 space-y-2 flex flex-col justify-between hover:border-zinc-700 transition"
+              className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 space-y-2.5 flex flex-col justify-between hover:border-purple-500/40 transition"
             >
               <div>
                 <div className="flex justify-between items-start">
@@ -367,6 +433,25 @@ export const CarWashPlatform: React.FC = () => {
                 <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
                   {service.description}
                 </p>
+
+                {/* Compatible Vehicle Types Badges */}
+                <div className="mt-2 pt-2 border-t border-zinc-800/80 flex flex-wrap gap-1">
+                  <span className="text-[10px] text-zinc-400 mr-1">Aplica a:</span>
+                  {service.compatibleVehicleTypes && service.compatibleVehicleTypes.length > 0 ? (
+                    service.compatibleVehicleTypes.map((vt) => (
+                      <span
+                        key={vt}
+                        className="bg-indigo-950/80 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.2 rounded text-[9px] font-semibold"
+                      >
+                        {VEHICLE_TYPES.find((t) => t.id === vt)?.shortLabel || vt}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-700/50 px-1.5 py-0.2 rounded text-[9px] font-semibold">
+                      Todos los tipos
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-2 border-t border-zinc-800">
@@ -429,28 +514,63 @@ export const CarWashPlatform: React.FC = () => {
                   type="text"
                   placeholder="Ej: KLYH-45"
                   value={plate}
-                  onChange={(e) => setPlate(e.target.value.toUpperCase())}
+                  onChange={(e) => handlePlateChange(e.target.value)}
                   className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-2 text-white uppercase font-mono font-bold tracking-wider text-sm focus:outline-none focus:border-purple-500"
                   required
                 />
               </div>
 
-              {/* Service Selection */}
+              {/* Vehicle Type Selector */}
               <div>
-                <label className="block text-zinc-300 font-medium mb-1">
-                  Tipo de Servicio *
+                <label className="block text-zinc-300 font-semibold mb-1.5 flex items-center justify-between">
+                  <span>Tipo de Vehículo * (Filtra servicios compatibles)</span>
+                  <span className="text-[10px] text-purple-300">
+                    {VEHICLE_TYPES.find((v) => v.id === selectedVehicleType)?.shortLabel}
+                  </span>
+                </label>
+                <div className="grid grid-cols-5 gap-1">
+                  {VEHICLE_TYPES.map((vt) => (
+                    <button
+                      key={vt.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedVehicleType(vt.id);
+                        setSelectedServiceId('');
+                      }}
+                      className={`p-1.5 rounded-lg border text-center transition flex flex-col items-center justify-center ${
+                        selectedVehicleType === vt.id
+                          ? 'bg-purple-600/30 border-purple-500 text-white font-bold'
+                          : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                      }`}
+                    >
+                      <span className="text-[10px] font-semibold leading-tight">{vt.shortLabel}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Service Selection Filtered by Vehicle Type */}
+              <div>
+                <label className="block text-zinc-300 font-medium mb-1 flex items-center justify-between">
+                  <span>Servicio de Lavado *</span>
+                  <span className="text-[10px] text-emerald-400 font-medium">
+                    {compatibleWashServices.length} servicios disponibles
+                  </span>
                 </label>
                 <select
-                  value={selectedServiceId}
+                  value={selectedServiceId || (compatibleWashServices[0]?.id || '')}
                   onChange={(e) => setSelectedServiceId(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-purple-500"
+                  className="w-full bg-zinc-900 border border-purple-800/60 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-purple-400"
                   required
                 >
-                  {washServices.map((w) => (
+                  {compatibleWashServices.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name} - {formatCLP(w.price)} (~{w.durationMinutes} min)
                     </option>
                   ))}
+                  {compatibleWashServices.length === 0 && (
+                    <option value="" disabled>No hay servicios disponibles para esta categoría</option>
+                  )}
                 </select>
               </div>
 
@@ -492,7 +612,8 @@ export const CarWashPlatform: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-bold shadow transition border border-purple-400/30"
+                  disabled={compatibleWashServices.length === 0}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-lg font-bold shadow transition border border-purple-400/30"
                 >
                   Crear Orden de Lavado
                 </button>

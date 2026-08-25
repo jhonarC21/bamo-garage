@@ -17,6 +17,7 @@ import {
   QrCode,
   Radio,
 } from 'lucide-react';
+import { VehicleType, VEHICLE_TYPES } from '../types';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP } from '../utils/pricing';
 import { bluetoothScanner } from '../utils/bluetoothScanner';
@@ -51,6 +52,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
   const [model, setModel] = useState('');
   const [color, setColor] = useState('');
   const [year, setYear] = useState<string>('');
+  const [vehicleType, setVehicleType] = useState<VehicleType>('sedan');
   
   // Manual Entry Time
   const [isManualEntryTime, setIsManualEntryTime] = useState(false);
@@ -116,6 +118,9 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
         setModel(match.model || '');
         setColor(match.color || '');
         setYear(match.year ? String(match.year) : '');
+        if (match.vehicleType) {
+          setVehicleType(match.vehicleType);
+        }
         setClientName(match.clientName || '');
         setClientRut(match.clientRut || '');
         setClientPhone(match.clientPhone || '');
@@ -131,6 +136,12 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
     setIsFrequent(false);
     setVisitsCount(0);
   };
+
+  // Filter wash services compatible with the selected vehicle type
+  const compatibleWashServices = washServices.filter((s) => {
+    if (!s.compatibleVehicleTypes || s.compatibleVehicleTypes.length === 0) return true;
+    return s.compatibleVehicleTypes.includes(vehicleType);
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,6 +159,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
       model: model.trim() || 'Desconocido',
       color: color.trim() || 'Desconocido',
       year: year ? parseInt(year, 10) : undefined,
+      vehicleType,
       clientName: clientName.trim() || undefined,
       clientRut: clientRut.trim() || undefined,
       clientPhone: clientPhone.trim() || undefined,
@@ -356,9 +368,40 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
 
           {/* Vehicle Info (Auto-filled or manual) */}
           <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 space-y-3">
-            <div className="font-semibold text-zinc-200 flex items-center gap-1.5 border-b border-zinc-800 pb-1.5">
-              <Car className="w-3.5 h-3.5 text-indigo-400" />
-              Datos del Vehículo
+            <div className="font-semibold text-zinc-200 flex items-center justify-between border-b border-zinc-800 pb-1.5">
+              <span className="flex items-center gap-1.5">
+                <Car className="w-3.5 h-3.5 text-indigo-400" />
+                Datos del Vehículo & Tipo
+              </span>
+              <span className="text-[10px] text-zinc-400">
+                Segmentación para servicios y lavados
+              </span>
+            </div>
+
+            {/* Vehicle Type Selector */}
+            <div>
+              <label className="block text-zinc-300 font-semibold text-[11px] mb-1.5">
+                Tipo de Vehículo * (Para catálogo de servicios de lavado)
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                {VEHICLE_TYPES.map((vt) => (
+                  <button
+                    key={vt.id}
+                    type="button"
+                    onClick={() => {
+                      setVehicleType(vt.id);
+                      setSelectedWashId(''); // reset selected wash if incompatible
+                    }}
+                    className={`p-2 rounded-xl border text-center transition flex flex-col items-center justify-center gap-0.5 ${
+                      vehicleType === vt.id
+                        ? 'bg-indigo-600/30 border-indigo-500 text-white font-bold shadow-md shadow-indigo-600/20'
+                        : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold leading-tight">{vt.shortLabel}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -478,10 +521,15 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
 
           {/* Optional Car Wash Service Addition */}
           <div className="bg-purple-950/25 border border-purple-800/40 rounded-xl p-3.5 space-y-2">
-            <label className="font-semibold text-purple-200 flex items-center gap-1.5 text-xs">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              ¿Desea agregar Servicio de Lavado al ingreso? (Opcional)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="font-semibold text-purple-200 flex items-center gap-1.5 text-xs">
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                ¿Desea agregar Servicio de Lavado al ingreso? (Opcional)
+              </label>
+              <span className="text-[10px] text-purple-300 bg-purple-950 px-2 py-0.5 rounded border border-purple-800">
+                Filtrado para {VEHICLE_TYPES.find((v) => v.id === vehicleType)?.shortLabel}
+              </span>
+            </div>
             <select
               id="select-checkin-wash"
               value={selectedWashId}
@@ -489,7 +537,7 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
               className="w-full bg-zinc-900 border border-purple-800/60 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-purple-400"
             >
               <option value="">-- Sin servicio de lavado --</option>
-              {washServices.map((w) => (
+              {compatibleWashServices.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name} - {formatCLP(w.price)} (~{w.durationMinutes} min)
                 </option>

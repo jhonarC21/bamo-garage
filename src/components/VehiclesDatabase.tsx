@@ -23,10 +23,11 @@ import {
   CreditCard,
   DollarSign,
   Banknote,
+  Layers,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime } from '../utils/pricing';
-import { Vehicle, CustomerBehaviorRating, PaymentMethod } from '../types';
+import { Vehicle, VehicleType, VEHICLE_TYPES, CustomerBehaviorRating, PaymentMethod } from '../types';
 
 export const VehiclesDatabase: React.FC = () => {
   const { vehicles, saveVehicle, payVIPAccumulatedBalance, settings } = useParking();
@@ -34,6 +35,7 @@ export const VehiclesDatabase: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [onlyFrequent, setOnlyFrequent] = useState(false);
   const [onlyVIP, setOnlyVIP] = useState(false);
+  const [vehicleTypeFilter, setVehicleTypeFilter] = useState<'all' | VehicleType>('all');
   const [behaviorFilter, setBehaviorFilter] = useState<'all' | CustomerBehaviorRating>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -50,6 +52,7 @@ export const VehiclesDatabase: React.FC = () => {
   const [model, setModel] = useState('');
   const [color, setColor] = useState('');
   const [year, setYear] = useState<string>('');
+  const [vehicleType, setVehicleType] = useState<VehicleType>('sedan');
   const [clientName, setClientName] = useState('');
   const [clientRut, setClientRut] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -79,6 +82,7 @@ export const VehiclesDatabase: React.FC = () => {
     setModel(matched.model);
     setColor(matched.color);
     setYear(matched.year ? String(matched.year) : '');
+    setVehicleType(matched.vehicleType || 'sedan');
     setClientName(matched.clientName || '');
     setClientRut(matched.clientRut || '');
     setClientPhone(matched.clientPhone || '');
@@ -106,6 +110,7 @@ export const VehiclesDatabase: React.FC = () => {
     setModel('');
     setColor('');
     setYear('');
+    setVehicleType('sedan');
     setClientName('');
     setClientRut('');
     setClientPhone('');
@@ -126,6 +131,7 @@ export const VehiclesDatabase: React.FC = () => {
     setModel(v.model);
     setColor(v.color);
     setYear(v.year ? String(v.year) : '');
+    setVehicleType(v.vehicleType || 'sedan');
     setClientName(v.clientName || '');
     setClientRut(v.clientRut || '');
     setClientPhone(v.clientPhone || '');
@@ -178,6 +184,7 @@ export const VehiclesDatabase: React.FC = () => {
       model: model.trim() || matchedRecord?.model || 'Desconocido',
       color: color.trim() || matchedRecord?.color || 'Desconocido',
       year: year ? parseInt(year, 10) : matchedRecord?.year,
+      vehicleType: vehicleType || matchedRecord?.vehicleType || 'sedan',
       clientName: clientName.trim() || matchedRecord?.clientName,
       clientRut: clientRut.trim() || matchedRecord?.clientRut,
       clientPhone: clientPhone.trim() || matchedRecord?.clientPhone,
@@ -227,6 +234,9 @@ export const VehiclesDatabase: React.FC = () => {
       return false;
     }
     if (onlyVIP && !v.isVIP) {
+      return false;
+    }
+    if (vehicleTypeFilter !== 'all' && (v.vehicleType || 'sedan') !== vehicleTypeFilter) {
       return false;
     }
     if (behaviorFilter !== 'all' && (v.behaviorRating || 'bueno') !== behaviorFilter) {
@@ -402,6 +412,21 @@ export const VehiclesDatabase: React.FC = () => {
               Clientes VIP ({vipCount})
             </button>
 
+            {/* Vehicle Type Filter Dropdown */}
+            <select
+              id="select-vehicle-type-filter"
+              value={vehicleTypeFilter}
+              onChange={(e) => setVehicleTypeFilter(e.target.value as any)}
+              className="bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="all">Todos los Tipos de Vehículo</option>
+              {VEHICLE_TYPES.map((vt) => (
+                <option key={vt.id} value={vt.id}>
+                  {vt.shortLabel}
+                </option>
+              ))}
+            </select>
+
             {/* Behavior Filter Dropdown */}
             <select
               value={behaviorFilter}
@@ -417,7 +442,7 @@ export const VehiclesDatabase: React.FC = () => {
             </select>
 
             <span className="text-zinc-500 text-xs font-mono pl-2">
-              Total: {vehicles.length}
+              Total: {filteredVehicles.length} / {vehicles.length}
             </span>
           </div>
         </div>
@@ -429,7 +454,7 @@ export const VehiclesDatabase: React.FC = () => {
               <tr>
                 <th className="p-3 font-semibold">Patente</th>
                 <th className="p-3 font-semibold">Categoría</th>
-                <th className="p-3 font-semibold">Vehículo</th>
+                <th className="p-3 font-semibold">Vehículo & Tipo</th>
                 <th className="p-3 font-semibold">Cliente & RUT</th>
                 <th className="p-3 font-semibold">Comportamiento & Notas</th>
                 <th className="p-3 text-center font-semibold">Visitas</th>
@@ -463,7 +488,12 @@ export const VehiclesDatabase: React.FC = () => {
                   </td>
                   <td className="p-3">
                     <div className="font-semibold text-zinc-200">{v.brand} {v.model}</div>
-                    <div className="text-[11px] text-zinc-400">{v.color} {v.year ? `(${v.year})` : ''}</div>
+                    <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                      <span>{v.color} {v.year ? `(${v.year})` : ''}</span>
+                      <span className="bg-indigo-950/80 text-indigo-300 border border-indigo-700/40 px-1.5 py-0.2 rounded text-[10px] font-medium">
+                        {VEHICLE_TYPES.find((vt) => vt.id === (v.vehicleType || 'sedan'))?.shortLabel || 'Sedán'}
+                      </span>
+                    </div>
                   </td>
                   <td className="p-3">
                     {v.clientName ? (
@@ -646,6 +676,29 @@ export const VehiclesDatabase: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Vehicle Type Selector */}
+              <div>
+                <label className="block text-zinc-300 font-semibold mb-1.5 flex items-center justify-between">
+                  <span>Tipo de Vehículo * (Asociación para catálogo de lavado)</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                  {VEHICLE_TYPES.map((vt) => (
+                    <button
+                      key={vt.id}
+                      type="button"
+                      onClick={() => setVehicleType(vt.id)}
+                      className={`p-2 rounded-xl border text-center transition flex flex-col items-center justify-center gap-0.5 ${
+                        vehicleType === vt.id
+                          ? 'bg-indigo-600/30 border-indigo-500 text-white font-bold shadow-md shadow-indigo-600/20'
+                          : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                      }`}
+                    >
+                      <span className="text-[11px] font-semibold leading-tight">{vt.shortLabel}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>

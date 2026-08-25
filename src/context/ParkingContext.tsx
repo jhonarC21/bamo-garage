@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import {
   ParkingSpot,
   Vehicle,
+  VehicleType,
   WashService,
   WashOrder,
   AccessoryProduct,
@@ -53,6 +54,7 @@ interface CheckInData {
   model: string;
   color: string;
   year?: number;
+  vehicleType?: VehicleType;
   clientName?: string;
   clientRut?: string;
   clientPhone?: string;
@@ -192,6 +194,7 @@ interface ParkingContextType {
       model?: string;
       color?: string;
       year?: number;
+      vehicleType?: VehicleType;
       clientName?: string;
       clientRut?: string;
       clientPhone?: string;
@@ -709,6 +712,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       model: data.model || existingVehicle?.model || 'Sin Modelo',
       color: data.color || existingVehicle?.color || 'Sin Color',
       year: data.year || existingVehicle?.year,
+      vehicleType: data.vehicleType || existingVehicle?.vehicleType,
       notes: data.notes || existingVehicle?.notes,
       clientName: data.clientName || existingVehicle?.clientName,
       clientRut: data.clientRut || existingVehicle?.clientRut,
@@ -758,6 +762,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       model: updatedVehicle.model,
       color: updatedVehicle.color,
       year: updatedVehicle.year,
+      vehicleType: updatedVehicle.vehicleType,
       clientName: updatedVehicle.clientName,
       clientRut: updatedVehicle.clientRut,
       clientPhone: updatedVehicle.clientPhone,
@@ -869,6 +874,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       model: updates.model !== undefined ? updates.model : oldSession.model,
       color: updates.color !== undefined ? updates.color : oldSession.color,
       year: updates.year !== undefined ? updates.year : oldSession.year,
+      vehicleType: updates.vehicleType !== undefined ? updates.vehicleType : oldSession.vehicleType,
       clientName: updates.clientName !== undefined ? updates.clientName : oldSession.clientName,
       clientRut: updates.clientRut !== undefined ? updates.clientRut : oldSession.clientRut,
       clientPhone: updates.clientPhone !== undefined ? updates.clientPhone : oldSession.clientPhone,
@@ -902,6 +908,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       model: updatedSession.model,
       color: updatedSession.color,
       year: updatedSession.year,
+      vehicleType: updatedSession.vehicleType,
       clientName: updatedSession.clientName,
       clientRut: updatedSession.clientRut,
       clientPhone: updatedSession.clientPhone,

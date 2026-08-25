@@ -14,47 +14,145 @@ import {
 // Clean initial vehicles database (empty, populated as real clients arrive)
 export const INITIAL_VEHICLES: Vehicle[] = [];
 
-// Standard Car Wash Services Catalog for Bamo Garage SpA
+// Standard Car Wash Services Catalog for Bamo Garage SpA (Segmented by Vehicle Type)
 export const INITIAL_WASH_SERVICES: WashService[] = [
+  // --- Hatchback & City Car ---
   {
-    id: 'wash_simple',
-    name: 'Lavado Exterior Simple',
-    description: 'Lavado con shampoo pH neutro, hidrolavado, secado con microfibra y abrillantador de neumáticos.',
+    id: 'wash_hatchback_simple',
+    name: 'Lavado Exterior Simple (Hatchback / City Car)',
+    description: 'Lavado exterior con shampoo pH neutro, hidrolavado, secado de microfibra y silicona en neumáticos para autos compactos y city cars.',
+    price: 6000,
+    durationMinutes: 25,
+    category: 'exterior',
+    vehicleType: 'hatchback_citycar',
+    compatibleVehicleTypes: ['hatchback_citycar'],
+  },
+  {
+    id: 'wash_hatchback_completo',
+    name: 'Lavado Completo Full (Hatchback / City Car)',
+    description: 'Exterior e interior completo: aspirado de piso y tapiz, limpieza de tablero, marcos de puertas y aromatizado express.',
+    price: 11000,
+    durationMinutes: 40,
+    category: 'completo',
+    vehicleType: 'hatchback_citycar',
+    compatibleVehicleTypes: ['hatchback_citycar'],
+  },
+
+  // --- Sedán ---
+  {
+    id: 'wash_sedan_simple',
+    name: 'Lavado Exterior Simple (Sedán)',
+    description: 'Lavado exterior a presión, espuma activa, secado manual de carrocería y abrillantador de neumáticos para autos sedán.',
     price: 7000,
     durationMinutes: 25,
     category: 'exterior',
+    vehicleType: 'sedan',
+    compatibleVehicleTypes: ['sedan'],
   },
   {
-    id: 'wash_completo',
-    name: 'Lavado Completo (Int + Ext)',
-    description: 'Exterior completo + aspirado profundo de tapices, limpieza de tablero, marcos de puertas y aromatizado.',
-    price: 12000,
+    id: 'wash_sedan_completo',
+    name: 'Lavado Completo Int + Ext (Sedán)',
+    description: 'Exterior + aspirado completo de habitáculo y maletero, limpieza de plásticos interiores, vidrios y fragancia automotriz.',
+    price: 13000,
     durationMinutes: 45,
     category: 'completo',
+    vehicleType: 'sedan',
+    compatibleVehicleTypes: ['sedan'],
+  },
+
+  // --- SUV / Station Wagon ---
+  {
+    id: 'wash_suv_simple',
+    name: 'Lavado Exterior Simple (SUV / Station Wagon)',
+    description: 'Hidrolavado profundo con remoción de barro en pasos de rueda, carrocería completa y protección de neumáticos para SUV/Station.',
+    price: 8500,
+    durationMinutes: 35,
+    category: 'exterior',
+    vehicleType: 'suv_station',
+    compatibleVehicleTypes: ['suv_station'],
   },
   {
-    id: 'wash_premium',
-    name: 'Lavado Full Premium + Cera',
-    description: 'Lavado completo + encerado de alta protección con cera carnauba, descontaminado express y limpieza de vidrios anti-empañante.',
-    price: 18000,
+    id: 'wash_suv_completo',
+    name: 'Lavado Completo Full (SUV / Station Wagon)',
+    description: 'Lavado exterior detallado + aspirado profundo de habitáculo, maletero XL, hidratación de plásticos y limpieza de vidrios.',
+    price: 16000,
+    durationMinutes: 50,
+    category: 'completo',
+    vehicleType: 'suv_station',
+    compatibleVehicleTypes: ['suv_station'],
+  },
+
+  // --- Mini Van ---
+  {
+    id: 'wash_minivan_simple',
+    name: 'Lavado Exterior Simple (Mini Van)',
+    description: 'Lavado exterior de gran volumen con shampoo espumante, limpieza de llantas y secado con microfibra de alta absorción.',
+    price: 10000,
+    durationMinutes: 40,
+    category: 'exterior',
+    vehicleType: 'minivan',
+    compatibleVehicleTypes: ['minivan'],
+  },
+  {
+    id: 'wash_minivan_completo',
+    name: 'Lavado Completo 3 Filas (Mini Van)',
+    description: 'Exterior completo + aspirado minucioso en las 3 filas de asientos, limpieza de rieles de puertas correderas y aromatizado.',
+    price: 19000,
     durationMinutes: 60,
-    category: 'detailing',
+    category: 'completo',
+    vehicleType: 'minivan',
+    compatibleVehicleTypes: ['minivan'],
+  },
+
+  // --- Van / Furgón ---
+  {
+    id: 'wash_van_simple',
+    name: 'Lavado Exterior Comercial (Van / Furgón)',
+    description: 'Lavado a presión con desengrasante para carrocerías altas y furgones comerciales, remoción de polución vial y secado.',
+    price: 12000,
+    durationMinutes: 45,
+    category: 'exterior',
+    vehicleType: 'van_furgon',
+    compatibleVehicleTypes: ['van_furgon'],
   },
   {
-    id: 'wash_tapiz',
-    name: 'Limpieza Profunda de Tapiz',
-    description: 'Lavado y extracción por inyección de asientos, eliminación de manchas profundas y sanitización con vapor.',
-    price: 26000,
+    id: 'wash_van_completo',
+    name: 'Lavado Completo Cabina + Furgón',
+    description: 'Exterior completo + limpieza profunda de cabina de conducción, piso de goma y desinfección de zona de carga.',
+    price: 22000,
+    durationMinutes: 70,
+    category: 'completo',
+    vehicleType: 'van_furgon',
+    compatibleVehicleTypes: ['van_furgon'],
+  },
+
+  // --- Servicios Universales / Especializados ---
+  {
+    id: 'wash_tapiz_universal',
+    name: 'Limpieza Profunda de Tapiz & Asientos',
+    description: 'Lavado por inyección y extracción en asientos y alfombras, eliminación de manchas rebeldes y sanitización con vapor.',
+    price: 28000,
     durationMinutes: 90,
     category: 'interior',
+    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'minivan', 'van_furgon'],
   },
   {
-    id: 'wash_motor',
-    name: 'Lavado de Motor al Detalle',
-    description: 'Desengrase cuidadoso de compartimento de motor, vapor controlado y acondicionador de plásticos y mangueras.',
+    id: 'wash_cera_carnauba',
+    name: 'Encerado Alta Protección Cera Carnauba',
+    description: 'Aplicación manual de cera natural con sellado hidrofóbico, realce de brillo y protección contra rayos UV.',
     price: 15000,
-    durationMinutes: 40,
+    durationMinutes: 45,
     category: 'detailing',
+    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'minivan', 'van_furgon'],
+  },
+  {
+    id: 'wash_motor_vapor',
+    name: 'Lavado de Motor al Detalle con Vapor',
+    description: 'Desengrase técnico de vano motor, vapor seco controlado y acondicionador dieléctrico en plásticos y mangueras.',
+    price: 16000,
+    durationMinutes: 45,
+    category: 'detailing',
+    compatibleVehicleTypes: ['hatchback_citycar', 'sedan', 'suv_station', 'minivan', 'van_furgon'],
   },
 ];
 

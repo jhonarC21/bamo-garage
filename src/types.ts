@@ -13,6 +13,53 @@ export type PaymentMethod =
 
 export type POSTerminalProvider = 'tuu' | 'mercadopago';
 
+export type VehicleType =
+  | 'hatchback_citycar'
+  | 'sedan'
+  | 'suv_station'
+  | 'minivan'
+  | 'van_furgon';
+
+export interface VehicleTypeOption {
+  id: VehicleType;
+  label: string;
+  shortLabel: string;
+  description: string;
+}
+
+export const VEHICLE_TYPES: VehicleTypeOption[] = [
+  {
+    id: 'hatchback_citycar',
+    label: 'Hatchback / City Car',
+    shortLabel: 'Hatchback / City',
+    description: 'Autos compactos, city cars y 3/5 puertas',
+  },
+  {
+    id: 'sedan',
+    label: 'Sedán',
+    shortLabel: 'Sedán',
+    description: 'Autos 4 puertas con maletero independiente',
+  },
+  {
+    id: 'suv_station',
+    label: 'SUV / Station Wagon',
+    shortLabel: 'SUV / Station',
+    description: 'Crossover, SUV compactas y familiares medianos',
+  },
+  {
+    id: 'minivan',
+    label: 'Mini Van',
+    shortLabel: 'Mini Van',
+    description: 'Vehículos multipropósito de 7/8 pasajeros',
+  },
+  {
+    id: 'van_furgon',
+    label: 'Van / Furgón',
+    shortLabel: 'Van / Furgón',
+    description: 'Vehículos comerciales de carga y transporte grande',
+  },
+];
+
 export interface POSCommissionInfo {
   provider: POSTerminalProvider;
   authorizationCode: string;
@@ -39,6 +86,7 @@ export interface Vehicle {
   model: string;
   color: string;
   year?: number;
+  vehicleType?: VehicleType; // Categoría por tamaño/tipo de vehículo
   notes?: string;
   clientName?: string;
   clientRut?: string;
@@ -77,6 +125,8 @@ export interface WashService {
   price: number;
   durationMinutes: number;
   category: WashCategory;
+  compatibleVehicleTypes?: VehicleType[]; // Tipos de vehículo compatibles (si no se define, compatible con todos)
+  vehicleType?: VehicleType | 'all'; // Tipo principal asignado
   iconName?: string;
 }
 
@@ -172,6 +222,7 @@ export interface ParkingSession {
   model: string;
   color: string;
   year?: number;
+  vehicleType?: VehicleType; // Categoría de vehículo
   clientName?: string;
   clientRut?: string;
   clientPhone?: string;
@@ -241,6 +292,7 @@ export interface MonthlyContract {
   brand: string;
   model: string;
   color: string;
+  vehicleType?: VehicleType; // Categoría del vehículo
   clientName: string;
   clientRut: string;
   clientPhone: string;
