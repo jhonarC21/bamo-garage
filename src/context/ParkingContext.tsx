@@ -228,6 +228,9 @@ interface ParkingContextType {
     transferVoucherNumber?: string
   ) => void;
   requestCustomerAccessories: (spotNumber: number, items: AccessorySaleItem[], notes?: string) => boolean;
+  removeWashOrder: (orderId: string, spotNumber?: number) => { success: boolean; message: string };
+  removeAccessoryItemFromSpot: (spotNumber: number, productId: string, removeQuantity?: number) => { success: boolean; message: string };
+  cancelAccessorySale: (saleId: string) => { success: boolean; message: string };
   createMonthlyContract: (contract: Omit<MonthlyContract, 'id' | 'contractNumber'>) => MonthlyContract;
   updateMonthlyContract: (id: string, updates: Partial<MonthlyContract>) => void;
   deleteMonthlyContract: (contractId: string, adminPinOrBypass?: string) => { success: boolean; message: string };
@@ -1563,6 +1566,192 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
+  // Remove or Cancel a Wash Order (mistake by customer or admin)
+  const removeWashOrder = (orderId: string, spotNumber?: number): { success: boolean; message: string } => {
+    const targetOrder = washOrders.find((o) => o.id === orderId);
+    const serviceName = targetOrder?.serviceName || 'Servicio de lavado';
+
+    // Remove from global wash orders
+    setWashOrders((prev) => prev.filter((o) => o.id !== orderId));
+
+    // Remove from active spot session if attached
+    setSpots((prev) =>
+      prev.map((spot) => {
+        const isTargetSpot = (spotNumber && spot.number === spotNumber) ||
+          spot.currentSession?.washOrders?.some((w) => w.id === orderId);
+
+        if (isTargetSpot && spot.currentSession) {
+          const currentOrders = spot.currentSession.washOrders || [];
+          const updatedOrders = currentOrders.filter((w) => w.id !== orderId);
+          const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
+          const accCost = (spot.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
+
+          return {
+            ...spot,
+            currentSession: {
+              ...spot.currentSession,
+              washOrders: updatedOrders,
+              totalServicesCost: washCost + accCost,
+              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+            },
+          };
+        }
+        return spot;
+      })
+    );
+
+    return {
+      success: true,
+      message: `"${serviceName}" eliminado exitosamente. El cobro fue descontado del ticket.`,
+    };
+  };
+
+  // Remove or Cancel an Accessory Product from an Active Spot Session (restores stock)
+  const removeAccessoryItemFromSpot = (
+    spotNumber: number,
+    productId: string,
+    removeQuantity?: number
+  ): { success: boolean; message: string } => {
+    const targetSpot = spots.find((s) => s.number === spotNumber);
+    if (!targetSpot || !targetSpot.currentSession) {
+      return { success: false, message: 'Puesto no encontrado o sin estadía activa.' };
+    }
+
+    const currentAcc = targetSpot.currentSession.accessorySales || [];
+    const itemIndex = currentAcc.findIndex((item) => item.productId === productId);
+    if (itemIndex === -1) {
+      return { success: false, message: 'El producto no está asociado a este ticket.' };
+    }
+
+    const targetItem = currentAcc[itemIndex];
+    const qtyToRestore = removeQuantity && removeQuantity < targetItem.quantity ? removeQuantity : targetItem.quantity;
+    const remainingQty = targetItem.quantity - qtyToRestore;
+
+    // 1. Restore stock in inventory
+    setAccessoryProducts((prev) =>
+      prev.map((prod) => (prod.id === productId ? { ...prod, stock: prod.stock + qtyToRestore } : prod))
+    );
+
+    // 2. Update accessorySales on spot session
+    let updatedAcc: AccessorySaleItem[];
+    if (remainingQty <= 0) {
+      updatedAcc = currentAcc.filter((_, idx) => idx !== itemIndex);
+    } else {
+      updatedAcc = currentAcc.map((item, idx) =>
+        idx === itemIndex
+          ? {
+              ...item,
+              quantity: remainingQty,
+              total: remainingQty * item.unitPrice,
+            }
+          : item
+      );
+    }
+
+    // 3. Update spots state
+    setSpots((prev) =>
+      prev.map((spot) => {
+        if (spot.number === spotNumber && spot.currentSession) {
+          const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
+          const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
+
+          return {
+            ...spot,
+            currentSession: {
+              ...spot.currentSession,
+              accessorySales: updatedAcc,
+              totalServicesCost: washCost + accCost,
+              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+            },
+          };
+        }
+        return spot;
+      })
+    );
+
+    // 4. Update or remove unpaid pre-orders in accessorySales
+    setAccessorySales((prev) =>
+      prev
+        .map((sale) => {
+          if (sale.spotNumber === spotNumber && !sale.paid) {
+            const hasProd = sale.items.some((i) => i.productId === productId);
+            if (!hasProd) return sale;
+
+            const newItems = sale.items
+              .map((i) => {
+                if (i.productId === productId) {
+                  const rem = i.quantity - qtyToRestore;
+                  return rem > 0 ? { ...i, quantity: rem, total: rem * i.unitPrice } : null;
+                }
+                return i;
+              })
+              .filter(Boolean) as AccessorySaleItem[];
+
+            if (newItems.length === 0) return null;
+            const newTotal = newItems.reduce((sum, i) => sum + i.total, 0);
+            return { ...sale, items: newItems, total: newTotal, totalAmount: newTotal };
+          }
+          return sale;
+        })
+        .filter(Boolean) as AccessorySale[]
+    );
+
+    return {
+      success: true,
+      message: `"${targetItem.productName}" eliminado del ticket (${qtyToRestore} un. devueltas al inventario).`,
+    };
+  };
+
+  // Cancel an entire accessory sale (e.g. from shop sales list)
+  const cancelAccessorySale = (saleId: string): { success: boolean; message: string } => {
+    const sale = accessorySales.find((s) => s.id === saleId);
+    if (!sale) return { success: false, message: 'Venta no encontrada.' };
+
+    // Restore stock for all items
+    setAccessoryProducts((prev) =>
+      prev.map((prod) => {
+        const item = sale.items.find((i) => i.productId === prod.id);
+        if (item) {
+          return { ...prod, stock: prod.stock + item.quantity };
+        }
+        return prod;
+      })
+    );
+
+    // If attached to spot, remove items from spot
+    if (sale.spotNumber) {
+      setSpots((prev) =>
+        prev.map((spot) => {
+          if (spot.number === sale.spotNumber && spot.currentSession) {
+            const currentAcc = spot.currentSession.accessorySales || [];
+            const saleProductIds = new Set(sale.items.map((i) => i.productId));
+            const updatedAcc = currentAcc.filter((i) => !saleProductIds.has(i.productId));
+            const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
+            const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
+
+            return {
+              ...spot,
+              currentSession: {
+                ...spot.currentSession,
+                accessorySales: updatedAcc,
+                totalServicesCost: washCost + accCost,
+                totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+              },
+            };
+          }
+          return spot;
+        })
+      );
+    }
+
+    setAccessorySales((prev) => prev.filter((s) => s.id !== saleId));
+
+    return {
+      success: true,
+      message: 'Venta de accesorios anulada y productos restituidos al stock.',
+    };
+  };
+
   // Create Monthly Contract
   const createMonthlyContract = (contractData: Omit<MonthlyContract, 'id' | 'contractNumber'>): MonthlyContract => {
     const id = `ctr_${Date.now()}`;
@@ -2496,8 +2685,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addWashOrder,
         requestCustomerWashOrder,
         updateWashStatus,
+        removeWashOrder,
         sellAccessories,
         requestCustomerAccessories,
+        removeAccessoryItemFromSpot,
+        cancelAccessorySale,
         createMonthlyContract,
         updateMonthlyContract,
         deleteMonthlyContract,

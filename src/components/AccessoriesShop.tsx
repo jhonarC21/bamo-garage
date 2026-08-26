@@ -69,6 +69,7 @@ export const AccessoriesShop: React.FC = () => {
     accessorySales,
     spots,
     sellAccessories,
+    cancelAccessorySale,
     addAccessoryProduct,
     updateAccessoryProduct,
     deleteAccessoryProduct,
@@ -820,6 +821,86 @@ export const AccessoriesShop: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Historial de Ventas Directas y Gestión de Anulaciones */}
+      {accessorySales.length > 0 && (
+        <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl p-5 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-amber-400" />
+                Historial de Ventas de Accesorios & Anulación
+              </h3>
+              <p className="text-[11px] text-zinc-400">
+                Permite anular ventas o pedidos ingresados por error. Al anular, se restituye automáticamente el stock.
+              </p>
+            </div>
+            <span className="text-xs bg-zinc-900 border border-zinc-800 text-zinc-300 px-2.5 py-1 rounded-full font-mono">
+              {accessorySales.length} ventas registradas
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[11px] text-zinc-400 border-b border-zinc-800">
+                <tr>
+                  <th className="pb-2">Fecha y Hora</th>
+                  <th className="pb-2">Destino / Cliente</th>
+                  <th className="pb-2">Artículos</th>
+                  <th className="pb-2">Total</th>
+                  <th className="pb-2">Método</th>
+                  <th className="pb-2 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60">
+                {accessorySales.map((sale) => (
+                  <tr key={sale.id} className="hover:bg-zinc-900/40 transition">
+                    <td className="py-2.5 text-zinc-300 font-mono text-[11px]">
+                      {formatDateTime(sale.date || sale.soldAt || '')}
+                    </td>
+                    <td className="py-2.5">
+                      {sale.spotNumber ? (
+                        <span className="bg-indigo-950/80 text-indigo-300 border border-indigo-800 px-2 py-0.5 rounded text-[10px] font-bold font-mono">
+                          Puesto #{sale.spotNumber}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-300 text-xs">
+                          {sale.clientName || 'Venta directa en caja'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 text-zinc-200">
+                      <div className="space-y-0.5">
+                        {sale.items.map((it, i) => (
+                          <div key={i} className="text-[11px]">
+                            <span className="font-semibold text-amber-300">{it.quantity}x</span> {it.productName} ({formatCLP(it.total)})
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="py-2.5 font-bold font-mono text-emerald-400 text-xs">
+                      {formatCLP(sale.total || sale.totalAmount || 0)}
+                    </td>
+                    <td className="py-2.5 text-zinc-400 capitalize text-[11px]">
+                      {sale.paymentMethod.replace('_', ' ')}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <button
+                        onClick={() => cancelAccessorySale(sale.id)}
+                        className="px-2.5 py-1 bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800/70 rounded-lg text-[10px] font-bold transition inline-flex items-center gap-1 shadow-sm"
+                        title="Anular venta y reponer stock"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Anular Venta</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Add/Edit Product in Catalog */}
       {isProductModalOpen && (

@@ -10,6 +10,9 @@ import {
   ShieldAlert,
   Check,
   ArrowRightLeft,
+  Trash2,
+  Sparkles,
+  ShoppingBag,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { ParkingSpot, ParkingSession, VEHICLE_TYPES, VehicleType } from '../types';
@@ -28,7 +31,14 @@ export const EditSessionModal: React.FC<EditSessionModalProps> = ({
   spot,
   onSuccess,
 }) => {
-  const { spots, updateActiveSpotSession, settings, getVehicleByPlate } = useParking();
+  const {
+    spots,
+    updateActiveSpotSession,
+    settings,
+    getVehicleByPlate,
+    removeWashOrder,
+    removeAccessoryItemFromSpot,
+  } = useParking();
 
   const [targetSpotNumber, setTargetSpotNumber] = useState<number>(spot?.number ?? 1);
   const [plate, setPlate] = useState('');
@@ -445,6 +455,86 @@ export const EditSessionModal: React.FC<EditSessionModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* Wash Services and Accessories Attached to this Session */}
+          {((currentSession.washOrders && currentSession.washOrders.length > 0) ||
+            (currentSession.accessorySales && currentSession.accessorySales.length > 0)) && (
+            <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <span className="font-bold text-xs text-zinc-200 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  Servicios y Productos Adicionales del Ticket
+                </span>
+                <span className="text-[10px] text-zinc-400 font-mono">
+                  Total Adicionales: {formatCLP(currentSession.totalServicesCost || 0)}
+                </span>
+              </div>
+
+              {/* Wash orders */}
+              {currentSession.washOrders && currentSession.washOrders.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-semibold text-purple-300 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> Lavados:
+                  </span>
+                  {currentSession.washOrders.map((w) => (
+                    <div
+                      key={w.id}
+                      className="bg-[#0A0B10] border border-zinc-800 rounded-lg p-2 flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <span className="font-semibold text-zinc-200 block">{w.serviceName}</span>
+                        <span className="text-[10px] text-zinc-400 font-mono">
+                          {formatCLP(w.price)} • Estado: {w.status}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeWashOrder(w.id, spot.number)}
+                        className="p-1.5 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 rounded-lg transition flex items-center gap-1 text-[10px] font-bold"
+                        title="Eliminar este servicio del ticket"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Accessories */}
+              {currentSession.accessorySales && currentSession.accessorySales.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-semibold text-amber-300 flex items-center gap-1">
+                    <ShoppingBag className="w-3 h-3" /> Accesorios de Tienda:
+                  </span>
+                  {currentSession.accessorySales.map((a) => (
+                    <div
+                      key={a.productId}
+                      className="bg-[#0A0B10] border border-zinc-800 rounded-lg p-2 flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <span className="font-semibold text-zinc-200 block">
+                          {a.quantity}x {a.productName}
+                        </span>
+                        <span className="text-[10px] text-zinc-400 font-mono">
+                          {formatCLP(a.total)} ({formatCLP(a.unitPrice)} c/u)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeAccessoryItemFromSpot(spot.number, a.productId)}
+                        className="p-1.5 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 rounded-lg transition flex items-center gap-1 text-[10px] font-bold"
+                        title="Eliminar este producto del ticket (restituye stock)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notes */}
           <div>

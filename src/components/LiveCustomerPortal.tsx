@@ -27,6 +27,7 @@ import {
   Tag,
   Gift,
   Lock,
+  Trash2,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
@@ -53,6 +54,8 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     getVehicleByPlate,
     requestCustomerWashOrder,
     requestCustomerAccessories,
+    removeWashOrder,
+    removeAccessoryItemFromSpot,
     setCustomerPaymentPreference,
   } = useParking();
 
@@ -246,6 +249,26 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
       setWashNotes('');
       setTimeout(() => setWashSuccessMsg(null), 5000);
       setActiveTab('stay');
+    }
+  };
+
+  // Cancel / Delete a Wash Order (placed by mistake or cancelled by customer)
+  const handleCancelWashOrder = (orderId: string, serviceName: string) => {
+    if (!spotNumber) return;
+    const res = removeWashOrder(orderId, spotNumber);
+    if (res.success) {
+      setWashSuccessMsg(`🗑️ Se canceló el servicio "${serviceName}" y fue descontado de tu ticket.`);
+      setTimeout(() => setWashSuccessMsg(null), 5000);
+    }
+  };
+
+  // Cancel / Delete an Accessory Item (placed by mistake or cancelled by customer)
+  const handleCancelAccessoryItem = (productId: string, productName: string) => {
+    if (!spotNumber) return;
+    const res = removeAccessoryItemFromSpot(spotNumber, productId);
+    if (res.success) {
+      setShopSuccessMsg(`🗑️ Se eliminó "${productName}" y su valor fue descontado de tu ticket.`);
+      setTimeout(() => setShopSuccessMsg(null), 5000);
     }
   };
 
@@ -926,15 +949,20 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
             {/* Active Wash Status Progress if ordered */}
             {session.washOrders && session.washOrders.length > 0 && (
               <div className="bg-purple-950/30 border border-purple-800/50 rounded-2xl p-4 space-y-2 text-xs">
-                <div className="font-bold text-purple-300 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-purple-400" />
-                  Estado de tus Servicios de Lavado
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-purple-300 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    Estado de tus Servicios de Lavado
+                  </div>
+                  <span className="text-[10px] text-purple-300/80 bg-purple-950/80 px-2 py-0.5 rounded-full border border-purple-800/60 font-mono">
+                    {session.washOrders.length} {session.washOrders.length === 1 ? 'servicio' : 'servicios'}
+                  </span>
                 </div>
                 <div className="space-y-2 pt-1">
                   {session.washOrders.map((wo, i) => (
                     <div
                       key={i}
-                      className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 flex items-center justify-between"
+                      className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 flex items-center justify-between gap-2"
                     >
                       <div>
                         <div className="font-semibold text-zinc-200">{wo.serviceName}</div>
@@ -942,21 +970,75 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                           {wo.washerName ? `Lavador: ${wo.washerName}` : 'Asignando personal'}
                         </div>
                       </div>
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                          wo.status === 'ready'
-                            ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700'
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                            wo.status === 'ready'
+                              ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700'
+                              : wo.status === 'in_progress'
+                              ? 'bg-cyan-950/90 text-cyan-300 border-cyan-700 animate-pulse'
+                              : 'bg-amber-950/90 text-amber-300 border-amber-700'
+                          }`}
+                        >
+                          {wo.status === 'ready'
+                            ? '✨ Listo para Retiro'
                             : wo.status === 'in_progress'
-                            ? 'bg-cyan-950/90 text-cyan-300 border-cyan-700 animate-pulse'
-                            : 'bg-amber-950/90 text-amber-300 border-amber-700'
-                        }`}
-                      >
-                        {wo.status === 'ready'
-                          ? '✨ Listo para Retiro'
-                          : wo.status === 'in_progress'
-                          ? '🧽 En Lavado'
-                          : '🕒 En Cola'}
-                      </span>
+                            ? '🧽 En Lavado'
+                            : '🕒 En Cola'}
+                        </span>
+                        {session.status === 'active' && wo.status !== 'delivered' && (
+                          <button
+                            onClick={() => handleCancelWashOrder(wo.id, wo.serviceName)}
+                            className="text-rose-400 hover:text-rose-300 bg-rose-950/70 hover:bg-rose-900 border border-rose-800/80 p-1.5 rounded-lg transition flex items-center gap-1 text-[10px] font-bold"
+                            title="Eliminar servicio por error / cancelar"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Eliminar</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Active Accessories Requested if any */}
+            {session.accessorySales && session.accessorySales.length > 0 && (
+              <div className="bg-amber-950/30 border border-amber-800/50 rounded-2xl p-4 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <ShoppingBag className="w-4 h-4 text-amber-400" />
+                    Artículos y Accesorios en tu Ticket
+                  </div>
+                  <span className="text-[10px] text-amber-400/90 bg-amber-950 px-2 py-0.5 rounded border border-amber-800">
+                    Pagar al retirar
+                  </span>
+                </div>
+                <div className="space-y-2 pt-1">
+                  {session.accessorySales.map((accItem, i) => (
+                    <div
+                      key={i}
+                      className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <div className="font-semibold text-zinc-200">
+                          {accItem.quantity}x {accItem.productName}
+                        </div>
+                        <div className="text-[10px] text-emerald-400 font-mono">
+                          {formatCLP(accItem.total)} ({formatCLP(accItem.unitPrice)} c/u)
+                        </div>
+                      </div>
+                      {session.status === 'active' && (
+                        <button
+                          onClick={() => handleCancelAccessoryItem(accItem.productId, accItem.productName)}
+                          className="flex items-center gap-1 text-[11px] text-rose-400 hover:text-rose-300 bg-rose-950/70 hover:bg-rose-900 border border-rose-800/80 px-2.5 py-1 rounded-lg transition font-medium"
+                          title="Eliminar producto por error"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Quitar</span>
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1170,18 +1252,36 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                           </span>
                         )}
 
-                        <button
-                          onClick={() => setSelectedWashService(service)}
-                          disabled={session.status !== 'active' || alreadyOrdered}
-                          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ${
-                            alreadyOrdered
-                              ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                              : 'bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/30'
-                          }`}
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          {alreadyOrdered ? 'Solicitado' : 'Solicitar Servicio'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {alreadyOrdered && (() => {
+                            const existingOrder = session.washOrders?.find(
+                              (w) => w.serviceId === service.id && w.status !== 'delivered'
+                            );
+                            return existingOrder && session.status === 'active' ? (
+                              <button
+                                onClick={() => handleCancelWashOrder(existingOrder.id, service.name)}
+                                className="px-2.5 py-1.5 rounded-xl font-bold text-xs bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/60 transition flex items-center gap-1 shadow-sm"
+                                title="Cancelar / eliminar este servicio"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Cancelar</span>
+                              </button>
+                            ) : null;
+                          })()}
+
+                          <button
+                            onClick={() => setSelectedWashService(service)}
+                            disabled={session.status !== 'active' || alreadyOrdered}
+                            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ${
+                              alreadyOrdered
+                                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                                : 'bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/30'
+                            }`}
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            {alreadyOrdered ? 'Solicitado' : 'Solicitar Servicio'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1203,6 +1303,48 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                 Solicita artículos para tu auto con entrega inmediata o al momento de retirar tu estadía en caja.
               </p>
             </div>
+
+            {/* Active Items Already on Ticket Banner */}
+            {session.accessorySales && session.accessorySales.length > 0 && (
+              <div className="bg-amber-950/30 border border-amber-800/60 rounded-2xl p-3.5 space-y-2">
+                <div className="flex items-center justify-between text-amber-300">
+                  <span className="font-bold text-xs flex items-center gap-1.5">
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                    Artículos solicitados en este ticket ({session.accessorySales.length})
+                  </span>
+                  <span className="text-[10px] text-amber-400 font-mono font-bold">
+                    Total: {formatCLP(session.accessorySales.reduce((s, a) => s + a.total, 0))}
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  {session.accessorySales.map((acc, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-zinc-950/80 border border-zinc-800 rounded-xl px-3 py-2 flex items-center justify-between"
+                    >
+                      <div className="text-[11px]">
+                        <span className="font-semibold text-zinc-200">
+                          {acc.quantity}x {acc.productName}
+                        </span>
+                        <span className="text-zinc-400 text-[10px] ml-2 font-mono">
+                          ({formatCLP(acc.total)})
+                        </span>
+                      </div>
+                      {session.status === 'active' && (
+                        <button
+                          onClick={() => handleCancelAccessoryItem(acc.productId, acc.productName)}
+                          className="text-rose-400 hover:text-rose-300 bg-rose-950/70 hover:bg-rose-900 border border-rose-800/70 px-2.5 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition"
+                          title="Quitar artículo del ticket"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Quitar</span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Category Filter Pills & Search */}
             <div className="space-y-2">
