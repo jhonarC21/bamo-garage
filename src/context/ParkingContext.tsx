@@ -46,6 +46,7 @@ import {
   DEFAULT_SETTINGS,
   calculateChileanPayroll,
   calculatePOSFee,
+  isContractActiveNow,
 } from '../utils/pricing';
 
 interface CheckInData {
@@ -651,6 +652,36 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem(STORAGE_KEYS.CONTRACTS, JSON.stringify(monthlyContracts));
   }, [monthlyContracts]);
 
+  // Synchronize dynamic contract spot reservations when time/schedules transition (e.g. Day -> Night or Night -> Day)
+  useEffect(() => {
+    setSpots((prevSpots) => {
+      let changed = false;
+      const nextSpots = prevSpots.map((spot) => {
+        if (spot.status === 'occupied') return spot;
+
+        const assignedContract = monthlyContracts.find(
+          (c) => c.spotNumber === spot.number && c.status === 'active'
+        );
+
+        const shouldBeReserved = isContractActiveNow(assignedContract, currentTime, settings);
+        const currentIsReserved = spot.status === 'reserved_monthly';
+
+        if (shouldBeReserved !== currentIsReserved || spot.monthlyContractId !== assignedContract?.id) {
+          changed = true;
+          return {
+            ...spot,
+            status: shouldBeReserved ? ('reserved_monthly' as const) : ('available' as const),
+            monthlyContractId: assignedContract?.id,
+            monthlyContract: assignedContract,
+          };
+        }
+        return spot;
+      });
+
+      return changed ? nextSpots : prevSpots;
+    });
+  }, [currentTime, monthlyContracts, settings]);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SESSIONS_HIST, JSON.stringify(completedSessions));
   }, [completedSessions]);
@@ -1026,12 +1057,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setSpots((prev) =>
       prev.map((s) => {
         if (s.number === currentSpotNumber && currentSpotNumber !== targetSpotNum) {
-          const hasContract = monthlyContracts.some((c) => c.spotNumber === currentSpotNumber && c.status === 'active');
+          const contract = monthlyContracts.find(
+            (c) => c.spotNumber === currentSpotNumber && c.status === 'active'
+          );
+          const hasActiveContractNow = isContractActiveNow(contract, currentTime, settings);
           return {
             ...s,
-            status: hasContract ? 'reserved_monthly' : 'available',
+            status: hasActiveContractNow ? 'reserved_monthly' : 'available',
             currentSessionId: undefined,
             currentSession: undefined,
+            monthlyContractId: contract?.id,
+            monthlyContract: contract,
             lastStatusChange: currentTime.toISOString(),
           };
         }
@@ -1185,18 +1221,21 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Save to historical completed sessions
     setCompletedSessions((prev) => [completedSession, ...prev]);
 
-    // Free the spot (if it has a monthly contract, return to 'reserved_monthly', otherwise 'available')
+    // Free the spot (if it has an active contract active RIGHT NOW, return to 'reserved_monthly', otherwise 'available')
     setSpots((prev) =>
       prev.map((s) => {
         if (s.number === spotNumber) {
-          const hasContract = monthlyContracts.some(
+          const contract = monthlyContracts.find(
             (c) => c.spotNumber === spotNumber && c.status === 'active'
           );
+          const hasActiveContractNow = isContractActiveNow(contract, new Date(effectiveExitTime), settings);
           return {
             ...s,
-            status: hasContract ? 'reserved_monthly' : 'available',
+            status: hasActiveContractNow ? 'reserved_monthly' : 'available',
             currentSessionId: undefined,
             currentSession: undefined,
+            monthlyContractId: contract?.id,
+            monthlyContract: contract,
             lastStatusChange: currentTime.toISOString(),
           };
         }
@@ -1239,18 +1278,21 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Remove any active wash orders related to this canceled session
     setWashOrders((prev) => prev.filter((order) => order.sessionId !== sessionId));
 
-    // Free the spot (if it has an active monthly contract, return to 'reserved_monthly', otherwise 'available')
+    // Free the spot (if it has an active monthly contract active RIGHT NOW, return to 'reserved_monthly', otherwise 'available')
     setSpots((prev) =>
       prev.map((s) => {
         if (s.number === spotNumber) {
-          const hasContract = monthlyContracts.some(
+          const contract = monthlyContracts.find(
             (c) => c.spotNumber === spotNumber && c.status === 'active'
           );
+          const hasActiveContractNow = isContractActiveNow(contract, currentTime, settings);
           return {
             ...s,
-            status: hasContract ? 'reserved_monthly' : 'available',
+            status: hasActiveContractNow ? 'reserved_monthly' : 'available',
             currentSessionId: undefined,
             currentSession: undefined,
+            monthlyContractId: contract?.id,
+            monthlyContract: contract,
             lastStatusChange: currentTime.toISOString(),
           };
         }
@@ -1533,14 +1575,15 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setMonthlyContracts((prev) => [newContract, ...prev]);
 
-    // If assigned to a spot, mark spot as reserved_monthly if not currently occupied
+    // If assigned to a spot, mark spot as reserved_monthly only if currently active right now and not occupied
     if (newContract.spotNumber) {
+      const isActiveNow = isContractActiveNow(newContract, currentTime, settings);
       setSpots((prev) =>
         prev.map((s) => {
           if (s.number === newContract.spotNumber) {
             return {
               ...s,
-              status: s.status === 'occupied' ? 'occupied' : 'reserved_monthly',
+              status: s.status === 'occupied' ? 'occupied' : (isActiveNow ? 'reserved_monthly' : 'available'),
               monthlyContractId: newContract.id,
               monthlyContract: newContract,
             };

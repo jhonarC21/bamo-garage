@@ -623,7 +623,7 @@ export const MonthlyContracts: React.FC = () => {
                     <option value="">-- Sin puesto fijo (Flexible) --</option>
                     {spots.map((s) => (
                       <option key={s.number} value={s.number}>
-                        Puesto #{s.number} {s.status === 'reserved_monthly' ? '(Ya en arriendo)' : ''}
+                        Puesto #{s.number} {s.monthlyContract ? `(Asignado: ${s.monthlyContract.type.replace('_', ' ')})` : '(Libre)'}
                       </option>
                     ))}
                   </select>
