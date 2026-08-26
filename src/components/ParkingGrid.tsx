@@ -19,6 +19,8 @@ import {
   X,
   AlertTriangle,
   Edit3,
+  CreditCard,
+  Banknote,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, calculateVacancyLoss, formatCLP, formatTimeOnly } from '../utils/pricing';
@@ -517,6 +519,31 @@ const SpotCard: React.FC<SpotCardProps> = ({
                 )}
               </div>
             </div>
+
+            {/* Customer Live Payment Preference Alert */}
+            {session.customerPaymentPreference && (
+              <div
+                className={`p-1.5 rounded-lg border flex items-center justify-between text-[10px] font-bold shadow-sm animate-pulse ${
+                  session.customerPaymentPreference === 'debito'
+                    ? 'bg-indigo-950/90 border-indigo-500/80 text-indigo-200'
+                    : 'bg-emerald-950/90 border-emerald-500/80 text-emerald-200'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  {session.customerPaymentPreference === 'debito' ? (
+                    <CreditCard className="w-3.5 h-3.5 text-indigo-400" />
+                  ) : (
+                    <Banknote className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                  <span>
+                    Cliente pagará con {session.customerPaymentPreference === 'debito' ? 'DÉBITO' : 'EFECTIVO'}
+                  </span>
+                </div>
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-black/40 border border-white/10">
+                  {session.customerPaymentPreference === 'debito' ? 'POS' : 'Caja'}
+                </span>
+              </div>
+            )}
 
             {/* Live Timer & Tier Calculation Box */}
             <div className="bg-[#090A0F]/90 border border-zinc-800 rounded-xl p-2.5 space-y-1.5">

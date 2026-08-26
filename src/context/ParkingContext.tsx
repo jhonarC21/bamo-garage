@@ -28,6 +28,7 @@ import {
   ReconciliationStatus,
   VIPPaymentRecord,
   UnifiedTransaction,
+  VehicleAuditLog,
 } from '../types';
 import {
   INITIAL_SPOTS,
@@ -238,6 +239,10 @@ interface ParkingContextType {
     siiBoletaNumber?: string,
     transferVoucherNumber?: string
   ) => { success: boolean; message: string };
+  setCustomerPaymentPreference: (spotNumber: number, preference: 'efectivo' | 'debito') => boolean;
+  deleteVehicle: (plate: string, adminPinOrBypass?: string) => { success: boolean; message: string };
+  vehicleAuditLogs: VehicleAuditLog[];
+  addVehicleAuditLog: (log: Omit<VehicleAuditLog, 'id' | 'timestamp'>) => void;
   advanceTime: (minutes: number) => void;
   resetTime: () => void;
   resetToInitialData: () => void;
@@ -274,6 +279,7 @@ const STORAGE_KEYS = {
   OPENING_CASH: 'parking_app_opening_cash_v3_prod',
   CASH_SHIFT: 'parking_app_cash_shift_v3_prod',
   VIP_PAYMENTS: 'parking_app_vip_payments_v3_prod',
+  VEHICLE_AUDIT_LOGS: 'parking_app_vehicle_audit_logs_v1',
   SNAPSHOTS: 'bamo_auto_snapshots_history_v1',
 };
 
@@ -286,6 +292,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.VEHICLES);
     return saved ? JSON.parse(saved) : INITIAL_VEHICLES;
+  });
+
+  const [vehicleAuditLogs, setVehicleAuditLogs] = useState<VehicleAuditLog[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.VEHICLE_AUDIT_LOGS);
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [washServices, setWashServices] = useState<WashService[]>(() => {
@@ -423,6 +434,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(null);
   const isIncomingCloudUpdate = useRef<boolean>(false);
   const isInitialCloudLoadComplete = useRef<boolean>(false);
+  const lastSyncedPayloadRef = useRef<string>('');
 
   const [simulatedMinutesAdded, setSimulatedMinutesAdded] = useState<number>(0);
   const [baseCurrentTime, setBaseCurrentTime] = useState<Date>(new Date());
@@ -457,6 +469,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
               if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
               if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
+              if (Array.isArray(data.vehicleAuditLogs)) setVehicleAuditLogs(data.vehicleAuditLogs);
               if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
               if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
               if (Array.isArray(data.expenses)) setExpenses(data.expenses);
@@ -488,6 +501,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
                 completedSessions: INITIAL_COMPLETED_SESSIONS,
                 vipPaymentRecords: [],
+                vehicleAuditLogs: [],
                 settings: DEFAULT_SETTINGS,
                 users: INITIAL_USERS,
                 expenses: INITIAL_EXPENSES,
@@ -522,11 +536,40 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
-  // Push local changes to Firestore across all devices
+  // Optimized Push local changes to Firestore: Only write on real state changes (Dirty check) & 30s batch window
   useEffect(() => {
     if (isIncomingCloudUpdate.current) return;
     if (!isInitialCloudLoadComplete.current) return;
 
+    // Construct serialized snapshot of meaningful business state (ignoring clock ticks)
+    const currentPayloadObj = {
+      spots,
+      vehicles,
+      washServices,
+      washOrders,
+      accessoryProducts,
+      accessorySales,
+      monthlyContracts,
+      completedSessions,
+      vipPaymentRecords,
+      vehicleAuditLogs,
+      settings,
+      users,
+      expenses,
+      openingCash,
+      cashRegisterClosures,
+      employees,
+      payrollSettlements,
+    };
+
+    const serializedPayload = JSON.stringify(currentPayloadObj);
+
+    // Rule 2: "Solo si hay cambios reales" - Don't write if data is identical to last sync
+    if (serializedPayload === lastSyncedPayloadRef.current) {
+      return;
+    }
+
+    // Intervalo de actualización: Cada 50 segundos (50000ms) para ahorro óptimo de cuotas y red
     const timer = setTimeout(() => {
       try {
         setCloudSyncStatus('syncing');
@@ -534,27 +577,13 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setDoc(
           liveDocRef,
           sanitizeForFirestore({
-            spots,
-            vehicles,
-            washServices,
-            washOrders,
-            accessoryProducts,
-            accessorySales,
-            monthlyContracts,
-            completedSessions,
-            vipPaymentRecords,
-            settings,
-            users,
-            expenses,
-            openingCash,
-            cashRegisterClosures,
-            employees,
-            payrollSettlements,
+            ...currentPayloadObj,
             lastUpdatedAt: new Date().toISOString(),
           }),
           { merge: true }
         )
           .then(() => {
+            lastSyncedPayloadRef.current = serializedPayload;
             setIsCloudSynced(true);
             setCloudSyncStatus('connected');
             setLastCloudSyncTime(new Date());
@@ -566,7 +595,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch (e) {
         console.warn('Error syncing state to Firestore:', e);
       }
-    }, 350);
+    }, 50000); // 50 segundos (50,000 ms) por actualización de estado/posición
 
     return () => clearTimeout(timer);
   }, [
@@ -579,6 +608,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     monthlyContracts,
     completedSessions,
     vipPaymentRecords,
+    vehicleAuditLogs,
     settings,
     users,
     expenses,
@@ -596,6 +626,10 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(vehicles));
   }, [vehicles]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.VEHICLE_AUDIT_LOGS, JSON.stringify(vehicleAuditLogs));
+  }, [vehicleAuditLogs]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.WASH_SERVICES, JSON.stringify(washServices));
@@ -664,6 +698,77 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return vehicles.find(
       (v) => v.plate.replace(/[^A-Z0-9]/g, '').toUpperCase() === cleanPlate
     );
+  };
+
+  const addVehicleAuditLog = (log: Omit<VehicleAuditLog, 'id' | 'timestamp'>) => {
+    const newLog: VehicleAuditLog = {
+      ...log,
+      id: `val_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      timestamp: currentTime.toISOString(),
+    };
+    setVehicleAuditLogs((prev) => [newLog, ...prev]);
+  };
+
+  const deleteVehicle = (
+    plate: string,
+    adminPinOrBypass?: string
+  ): { success: boolean; message: string } => {
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    const isPinValid =
+      adminPinOrBypass &&
+      users.some((u) => u.role === 'admin' && u.pin === adminPinOrBypass);
+
+    if (!isAdmin && !isPinValid) {
+      return {
+        success: false,
+        message: 'Acceso restringido: Solo un usuario con rol de Administrador o autorización mediante Clave PIN de Administrador puede eliminar registros de vehículos.',
+      };
+    }
+
+    const cleanPlate = plate.trim().toUpperCase();
+    const existingVehicle = getVehicleByPlate(cleanPlate);
+    if (!existingVehicle) {
+      return { success: false, message: `El vehículo con patente ${cleanPlate} no se encuentra registrado.` };
+    }
+
+    setVehicles((prev) => prev.filter((v) => v.plate.trim().toUpperCase() !== cleanPlate));
+
+    addVehicleAuditLog({
+      action: 'delete',
+      plate: cleanPlate,
+      user: currentUser.name || 'Usuario',
+      userRole: currentUser.role,
+      authorizedByAdmin: isAdmin ? currentUser.name : 'Administrador (PIN Autorizado)',
+      adminPinVerified: true,
+      description: `Eliminación permanente del registro vehicular patente ${cleanPlate} (${existingVehicle.brand} ${existingVehicle.model})`,
+      previousData: existingVehicle,
+    });
+
+    return {
+      success: true,
+      message: `Vehículo con patente ${cleanPlate} eliminado exitosamente.`,
+    };
+  };
+
+  const setCustomerPaymentPreference = (spotNumber: number, preference: 'efectivo' | 'debito'): boolean => {
+    let matched = false;
+    setSpots((prev) =>
+      prev.map((s) => {
+        if (s.number === spotNumber && s.currentSession) {
+          matched = true;
+          return {
+            ...s,
+            currentSession: {
+              ...s.currentSession,
+              customerPaymentPreference: preference,
+              customerPaymentPreferenceTime: new Date().toISOString(),
+            },
+          };
+        }
+        return s;
+      })
+    );
+    return matched;
   };
 
   const saveVehicle = (newOrUpdated: Vehicle) => {
@@ -2359,7 +2464,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         reconcileTransaction,
         batchReconcileTransactions,
         saveVehicle,
+        deleteVehicle,
+        vehicleAuditLogs,
+        addVehicleAuditLog,
         getVehicleByPlate,
+        setCustomerPaymentPreference,
         reclassifySessionPaymentMethod,
         advanceTime,
         resetTime,

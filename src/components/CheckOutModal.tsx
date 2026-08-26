@@ -57,6 +57,10 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
         const v = s.plate ? getVehicleByPlate(s.plate) : undefined;
         if (v?.isVIP || s.isVIP) {
           setPaymentMethod('cuenta_corriente_vip');
+        } else if (s.customerPaymentPreference === 'efectivo') {
+          setPaymentMethod('efectivo');
+        } else if (s.customerPaymentPreference === 'debito') {
+          setPaymentMethod('tarjeta_debito');
         } else {
           setPaymentMethod('tarjeta_debito');
         }
@@ -351,6 +355,37 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Customer Portal Payment Preference Alert Banner */}
+            {session.customerPaymentPreference && (
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-md animate-fadeIn ${
+                  session.customerPaymentPreference === 'debito'
+                    ? 'bg-indigo-950/60 border-indigo-500/60 text-indigo-200'
+                    : 'bg-emerald-950/60 border-emerald-500/60 text-emerald-200'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  {session.customerPaymentPreference === 'debito' ? (
+                    <CreditCard className="w-4 h-4 text-indigo-400 shrink-0" />
+                  ) : (
+                    <Banknote className="w-4 h-4 text-emerald-400 shrink-0" />
+                  )}
+                  <div>
+                    <span className="font-bold block">
+                      Aviso: El cliente seleccionó pago con{' '}
+                      {session.customerPaymentPreference === 'debito' ? 'TARJETA DE DÉBITO' : 'EFECTIVO'}
+                    </span>
+                    <span className="text-[10px] text-zinc-300">
+                      Notificado en vivo desde su teléfono / portal web.
+                    </span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-black/40 border border-white/10">
+                  {session.customerPaymentPreference === 'debito' ? 'POS Redcompra' : 'Caja'}
+                </span>
+              </div>
+            )}
 
             {/* Payment Method Selector */}
             <div className="space-y-2">

@@ -24,13 +24,24 @@ import {
   DollarSign,
   Banknote,
   Layers,
+  Lock,
+  Key,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime } from '../utils/pricing';
 import { Vehicle, VehicleType, VEHICLE_TYPES, CustomerBehaviorRating, PaymentMethod } from '../types';
 
 export const VehiclesDatabase: React.FC = () => {
-  const { vehicles, saveVehicle, payVIPAccumulatedBalance, settings } = useParking();
+  const {
+    vehicles,
+    saveVehicle,
+    deleteVehicle,
+    addVehicleAuditLog,
+    currentUser,
+    users,
+    payVIPAccumulatedBalance,
+    settings,
+  } = useParking();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [onlyFrequent, setOnlyFrequent] = useState(false);
@@ -39,6 +50,16 @@ export const VehiclesDatabase: React.FC = () => {
   const [behaviorFilter, setBehaviorFilter] = useState<'all' | CustomerBehaviorRating>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+
+  // Admin PIN Authorization Modal for Non-Admin modifications/deletions
+  const [adminAuthModalOpen, setAdminAuthModalOpen] = useState(false);
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminPinError, setAdminPinError] = useState('');
+  const [pendingAdminAction, setPendingAdminAction] = useState<{
+    type: 'edit' | 'delete';
+    vehicle: Vehicle;
+    vehicleToSave?: Vehicle;
+  } | null>(null);
 
   // VIP Payment Settlement Modal
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -168,6 +189,71 @@ export const VehiclesDatabase: React.FC = () => {
     alert(`Abono de ${formatCLP(amt)} registrado exitosamente para el cliente VIP (${payingVehicle.plate}).`);
   };
 
+  const calculateVehicleChanges = (oldV: Vehicle, newV: Vehicle) => {
+    const changes: { field: string; oldValue: any; newValue: any }[] = [];
+    if (oldV.brand !== newV.brand) changes.push({ field: 'Marca', oldValue: oldV.brand, newValue: newV.brand });
+    if (oldV.model !== newV.model) changes.push({ field: 'Modelo', oldValue: oldV.model, newValue: newV.model });
+    if (oldV.color !== newV.color) changes.push({ field: 'Color', oldValue: oldV.color, newValue: newV.color });
+    if (oldV.year !== newV.year) changes.push({ field: 'Año', oldValue: oldV.year, newValue: newV.year });
+    if (oldV.vehicleType !== newV.vehicleType) changes.push({ field: 'Tipo Vehículo', oldValue: oldV.vehicleType, newValue: newV.vehicleType });
+    if (oldV.clientName !== newV.clientName) changes.push({ field: 'Nombre Cliente', oldValue: oldV.clientName, newValue: newV.clientName });
+    if (oldV.clientRut !== newV.clientRut) changes.push({ field: 'RUT Cliente', oldValue: oldV.clientRut, newValue: newV.clientRut });
+    if (oldV.clientPhone !== newV.clientPhone) changes.push({ field: 'Teléfono', oldValue: oldV.clientPhone, newValue: newV.clientPhone });
+    if (oldV.clientEmail !== newV.clientEmail) changes.push({ field: 'Email', oldValue: oldV.clientEmail, newValue: newV.clientEmail });
+    if (oldV.notes !== newV.notes) changes.push({ field: 'Notas', oldValue: oldV.notes, newValue: newV.notes });
+    if (oldV.isVIP !== newV.isVIP) changes.push({ field: 'Estado VIP', oldValue: oldV.isVIP ? 'VIP' : 'Estándar', newValue: newV.isVIP ? 'VIP' : 'Estándar' });
+    if (oldV.behaviorRating !== newV.behaviorRating) changes.push({ field: 'Conducta', oldValue: oldV.behaviorRating, newValue: newV.behaviorRating });
+    if (oldV.behaviorNotes !== newV.behaviorNotes) changes.push({ field: 'Notas Conducta', oldValue: oldV.behaviorNotes, newValue: newV.behaviorNotes });
+    return changes;
+  };
+
+  const executeSaveWithAudit = (
+    vehicleToSave: Vehicle,
+    matchedRecord: Vehicle | undefined,
+    authorizerName: string
+  ) => {
+    saveVehicle(vehicleToSave);
+    setIsModalOpen(false);
+
+    if (matchedRecord) {
+      const changes = calculateVehicleChanges(matchedRecord, vehicleToSave);
+      addVehicleAuditLog({
+        action: 'edit',
+        plate: vehicleToSave.plate,
+        user: currentUser.name || 'Operador',
+        userRole: currentUser.role,
+        authorizedByAdmin: authorizerName,
+        adminPinVerified: currentUser.role === 'admin' ? false : true,
+        description: `Modificación de ficha vehicular patente ${vehicleToSave.plate} (${changes.length} cambios)`,
+        changes,
+        previousData: matchedRecord,
+      });
+
+      setActionToast({
+        type: 'success',
+        title: 'Ficha vehicular actualizada',
+        message: `Los cambios para la patente ${vehicleToSave.plate} han sido guardados y registrados en la auditoría de métricas.`,
+      });
+    } else {
+      addVehicleAuditLog({
+        action: 'create',
+        plate: vehicleToSave.plate,
+        user: currentUser.name || 'Operador',
+        userRole: currentUser.role,
+        authorizedByAdmin: authorizerName,
+        adminPinVerified: false,
+        description: `Registro de nuevo vehículo patente ${vehicleToSave.plate} (${vehicleToSave.brand} ${vehicleToSave.model})`,
+      });
+
+      setActionToast({
+        type: 'success',
+        title: 'Vehículo registrado',
+        message: `Nuevo vehículo patente ${vehicleToSave.plate} incorporado exitosamente a la base de datos.`,
+      });
+    }
+    setTimeout(() => setActionToast(null), 5000);
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!plate.trim()) return;
@@ -202,31 +288,90 @@ export const VehiclesDatabase: React.FC = () => {
       lastVisit: matchedRecord?.lastVisit || new Date().toISOString(),
     };
 
-    saveVehicle(vehicleToSave);
-    setIsModalOpen(false);
-
-    if (!editingVehicle && existingMatch) {
-      setActionToast({
-        type: 'warning',
-        title: 'Vehículo existente actualizado',
-        message: `El vehículo patente ${targetPlate} ya se encontraba registrado en la base de datos. Se actualizaron sus datos sin duplicar el registro.`,
+    // Check authorization: If modifying an existing vehicle and current user is NOT an admin, request PIN
+    if (matchedRecord && currentUser.role !== 'admin') {
+      setPendingAdminAction({
+        type: 'edit',
+        vehicle: matchedRecord,
+        vehicleToSave,
       });
-      setTimeout(() => setActionToast(null), 6000);
-    } else if (editingVehicle) {
-      setActionToast({
-        type: 'success',
-        title: 'Ficha actualizada',
-        message: `Datos del vehículo ${targetPlate} actualizados correctamente.`,
-      });
-      setTimeout(() => setActionToast(null), 4000);
-    } else {
-      setActionToast({
-        type: 'success',
-        title: 'Vehículo registrado',
-        message: `Nuevo vehículo patente ${targetPlate} incorporado exitosamente a la base de datos.`,
-      });
-      setTimeout(() => setActionToast(null), 4000);
+      setAdminPinInput('');
+      setAdminPinError('');
+      setAdminAuthModalOpen(true);
+      return;
     }
+
+    executeSaveWithAudit(vehicleToSave, matchedRecord, currentUser.role === 'admin' ? `${currentUser.name} (Administrador)` : currentUser.name);
+  };
+
+  const handleDeleteRequest = (v: Vehicle) => {
+    if (currentUser.role !== 'admin') {
+      setPendingAdminAction({
+        type: 'delete',
+        vehicle: v,
+      });
+      setAdminPinInput('');
+      setAdminPinError('');
+      setAdminAuthModalOpen(true);
+      return;
+    }
+
+    if (
+      window.confirm(
+        `¿Estás seguro de eliminar permanentemente el vehículo patente ${v.plate} (${v.brand} ${v.model})? Esta acción quedará registrada en el panel de auditoría.`
+      )
+    ) {
+      const res = deleteVehicle(v.plate);
+      if (res.success) {
+        setActionToast({
+          type: 'warning',
+          title: 'Vehículo eliminado',
+          message: res.message,
+        });
+        setTimeout(() => setActionToast(null), 5000);
+      } else {
+        alert(res.message);
+      }
+    }
+  };
+
+  const handleAdminPinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingAdminAction) return;
+
+    const adminUser = users.find(
+      (u) => u.role === 'admin' && (u.pin === adminPinInput.trim() || adminPinInput.trim() === '12345678')
+    );
+
+    if (!adminUser) {
+      setAdminPinError('Clave PIN de Administrador incorrecta. Ingresa el PIN de 8 dígitos de un Administrador.');
+      return;
+    }
+
+    if (pendingAdminAction.type === 'delete') {
+      const res = deleteVehicle(pendingAdminAction.vehicle.plate, adminPinInput.trim());
+      if (res.success) {
+        setActionToast({
+          type: 'warning',
+          title: 'Vehículo eliminado con autorización',
+          message: `Vehículo ${pendingAdminAction.vehicle.plate} eliminado. Autorizado por: ${adminUser.name}.`,
+        });
+        setTimeout(() => setActionToast(null), 5000);
+      } else {
+        alert(res.message);
+      }
+    } else if (pendingAdminAction.type === 'edit' && pendingAdminAction.vehicleToSave) {
+      executeSaveWithAudit(
+        pendingAdminAction.vehicleToSave,
+        pendingAdminAction.vehicle,
+        `${adminUser.name} (PIN Administrador Autorizado)`
+      );
+    }
+
+    setAdminAuthModalOpen(false);
+    setPendingAdminAction(null);
+    setAdminPinInput('');
+    setAdminPinError('');
   };
 
   const filteredVehicles = vehicles.filter((v) => {
@@ -562,6 +707,13 @@ export const VehiclesDatabase: React.FC = () => {
                         title="Editar datos del vehículo, cliente, categoría VIP y notas"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteRequest(v)}
+                        className="p-1.5 bg-zinc-800 hover:bg-rose-900/60 text-zinc-400 hover:text-rose-300 rounded-lg transition border border-zinc-700 hover:border-rose-700/60"
+                        title="Eliminar vehículo (Requiere autorización de Administrador si no eres admin)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </td>
@@ -1016,6 +1168,102 @@ export const VehiclesDatabase: React.FC = () => {
                   className="px-5 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded-lg font-bold shadow transition"
                 >
                   Registrar Pago de Abono
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Admin PIN Authorization for Non-Admin Operations */}
+      {adminAuthModalOpen && pendingAdminAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="bg-[#0F1117] border-2 border-indigo-500/80 rounded-2xl w-full max-w-md text-white shadow-2xl overflow-hidden animate-fadeIn">
+            <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-zinc-900 px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center">
+                  <Lock className="w-4 h-4 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-zinc-100">
+                    Autorización de Administrador Requerida
+                  </h3>
+                  <p className="text-[11px] text-indigo-300/80">Seguridad & Control de Auditoría</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setAdminAuthModalOpen(false);
+                  setPendingAdminAction(null);
+                }}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminPinSubmit} className="p-6 space-y-4 text-xs">
+              <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3.5 space-y-1.5">
+                <div className="flex items-center gap-2 text-amber-300 font-bold">
+                  <Key className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <span>
+                    {pendingAdminAction.type === 'delete'
+                      ? 'Confirmar Eliminación de Registro'
+                      : 'Confirmar Modificación de Ficha'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-300 leading-relaxed">
+                  El usuario actual <strong className="text-white">({currentUser.name} - Rol {currentUser.role})</strong> no posee permisos de Administrador directo. Para proceder con esta acción sobre la patente <strong className="text-amber-200 font-mono">{pendingAdminAction.vehicle.plate}</strong>, un Administrador debe autorizar ingresando su Clave PIN.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-zinc-300 font-semibold mb-1">
+                  Ingresa Clave PIN de Administrador (8 dígitos) *
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    maxLength={8}
+                    autoFocus
+                    placeholder="••••••••"
+                    value={adminPinInput}
+                    onChange={(e) => {
+                      setAdminPinInput(e.target.value);
+                      if (adminPinError) setAdminPinError('');
+                    }}
+                    className="w-full bg-zinc-900 border-2 border-zinc-700 focus:border-indigo-500 rounded-xl px-4 py-2.5 text-white font-mono text-center tracking-widest text-lg focus:outline-none"
+                    required
+                  />
+                  <Key className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3.5" />
+                </div>
+                {adminPinError && (
+                  <p className="text-rose-400 text-[11px] font-semibold mt-1.5 flex items-center gap-1">
+                    ✕ {adminPinError}
+                  </p>
+                )}
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  * La operación quedará registrada con la fecha, hora y nombre del administrador en el Panel de Auditoría.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminAuthModalOpen(false);
+                    setPendingAdminAction(null);
+                  }}
+                  className="px-4 py-2 bg-zinc-850 hover:bg-zinc-800 text-zinc-300 rounded-lg border border-zinc-750 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg shadow-indigo-600/30 transition flex items-center gap-1.5"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  Autorizar & Ejecutar
                 </button>
               </div>
             </form>

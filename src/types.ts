@@ -134,6 +134,8 @@ export interface WashService {
   category: WashCategory;
   compatibleVehicleTypes?: VehicleType[]; // Tipos de vehículo compatibles (si no se define, compatible con todos)
   vehicleType?: VehicleType | 'all'; // Tipo principal asignado
+  enabledInClientPortal?: boolean; // Habilitado para solicitar desde el portal del cliente (control exclusivo Administrador)
+  availableInCustomerPortal?: boolean; // alias
   iconName?: string;
 }
 
@@ -272,6 +274,10 @@ export interface ParkingSession {
   notes?: string;
   qrCodeUrl?: string;
 
+  // Customer selected payment preference from customer portal
+  customerPaymentPreference?: 'efectivo' | 'debito';
+  customerPaymentPreferenceTime?: string;
+
   // Reconciliation Audit by Administrator
   isReconciled?: boolean;
   reconciledAt?: string;
@@ -391,6 +397,9 @@ export interface ParkingSettings {
   honorariosRetentionPercent: number; // 13.75% / 14.5%
   retencionHonorariosRateChile?: number; // alias
   minWageChile: number; // e.g. 500000 CLP
+  // Portal del Cliente settings
+  clientPortalWashEnabled?: boolean; // Control exclusivo del Administrador para activar/desactivar lavado en portal
+  washServicesEnabledInPortal?: boolean; // alias
   expenseCategories: string[];
 }
 
@@ -616,6 +625,22 @@ export interface UnifiedTransaction {
   reconciledBy?: string;
   reconciliationNotes?: string;
   reconciliationStatus: ReconciliationStatus;
+}
+
+export interface VehicleAuditLog {
+  id: string;
+  timestamp: string;
+  action: 'create' | 'edit' | 'delete' | 'behavior_update';
+  plate: string;
+  user: string;
+  userRole: UserRole;
+  authorizedByAdmin?: string;
+  adminPinVerified?: boolean;
+  description: string;
+  details?: string;
+  changes?: any;
+  previousData?: Partial<Vehicle>;
+  newData?: Partial<Vehicle>;
 }
 
 

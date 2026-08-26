@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS: ParkingSettings = {
   ivaRatePercent: 19,
   honorariosRetentionPercent: 13.75,
   minWageChile: 500000,
+  clientPortalWashEnabled: true,
   expenseCategories: [
     'Insumos de Lavado & Químicos',
     'Aseo, Limpieza & Desinfección',

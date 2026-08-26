@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Search,
   ChevronRight,
+  ChevronLeft,
   Info,
   Calendar,
   RefreshCw,
@@ -52,6 +53,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     getVehicleByPlate,
     requestCustomerWashOrder,
     requestCustomerAccessories,
+    setCustomerPaymentPreference,
   } = useParking();
 
   // Active plate or ticket query state
@@ -80,9 +82,17 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
   // Customer payment choice: 'efectivo' | 'debito' | null
   const [customerPaymentChoice, setCustomerPaymentChoice] = useState<'efectivo' | 'debito' | null>(null);
   const [quickAddSuccess, setQuickAddSuccess] = useState<string | null>(null);
+  const carouselRef = React.useRef<HTMLDivElement>(null);
 
   // Normalize plate helper
   const normalizePlate = (str: string) => str.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
+  const scrollCarousel = (direction: 'left' | 'right') => {
+    if (carouselRef.current) {
+      const scrollAmount = direction === 'left' ? -240 : 240;
+      carouselRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
 
   // Find active session by ticket or by plate
   let activeSpot = spots.find((s) => {
@@ -107,6 +117,20 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
 
   const session: ParkingSession | undefined = activeSession || completedSession;
   const spotNumber = session?.spotNumber;
+
+  // Sync customer payment choice if updated on session
+  useEffect(() => {
+    if (session?.customerPaymentPreference) {
+      setCustomerPaymentChoice(session.customerPaymentPreference);
+    }
+  }, [session?.customerPaymentPreference]);
+
+  const handleSelectPaymentChoice = (choice: 'efectivo' | 'debito') => {
+    setCustomerPaymentChoice(choice);
+    if (spotNumber !== undefined && session?.status === 'active') {
+      setCustomerPaymentPreference(spotNumber, choice);
+    }
+  };
 
   // Handle Search Submission
   const handleSearchPlate = (e?: React.FormEvent) => {
@@ -456,7 +480,10 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
   const clientVehicleType: VehicleType = session.vehicleType || clientVehicleRecord?.vehicleType || 'sedan';
   const clientVehicleTypeObj = VEHICLE_TYPES.find((v) => v.id === clientVehicleType);
 
+  const isWashGloballyEnabled = settings.washServicesEnabledInPortal !== false;
   const availableClientWashServices = (washServices || []).filter((s) => {
+    if (!isWashGloballyEnabled) return false;
+    if (s.availableInCustomerPortal === false) return false;
     if (!s.compatibleVehicleTypes || s.compatibleVehicleTypes.length === 0) return true;
     return s.compatibleVehicleTypes.includes(clientVehicleType);
   });
@@ -761,7 +788,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                 {/* 1. Efectivo */}
                 <button
                   type="button"
-                  onClick={() => setCustomerPaymentChoice('efectivo')}
+                  onClick={() => handleSelectPaymentChoice('efectivo')}
                   className={`p-3.5 rounded-xl border-2 transition text-left flex flex-col justify-between relative overflow-hidden ${
                     customerPaymentChoice === 'efectivo'
                       ? 'bg-emerald-950/50 border-emerald-500 text-white shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-400/40'
@@ -794,7 +821,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                   disabled={!isDebitAllowed}
                   onClick={() => {
                     if (isDebitAllowed) {
-                      setCustomerPaymentChoice('debito');
+                      handleSelectPaymentChoice('debito');
                     }
                   }}
                   className={`p-3.5 rounded-xl border-2 transition text-left flex flex-col justify-between relative overflow-hidden ${
@@ -936,6 +963,99 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
               </div>
             )}
 
+            {/* SHOP PRODUCTS INCENTIVE CAROUSEL */}
+            {session.status === 'active' && accessoryProducts && accessoryProducts.length > 0 && (
+              <div className="bg-[#10121A] border border-amber-900/40 rounded-2xl p-4 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+                      <ShoppingBag className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-zinc-100 flex items-center gap-1.5">
+                        <span>Aprovecha tu Estadía • Tienda de Accesorios</span>
+                        <span className="text-[9px] bg-amber-500/20 text-amber-300 font-mono px-1.5 py-0.2 rounded font-bold uppercase">
+                          Entrega Inmediata
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-zinc-400">
+                        Artículos listos para entregar a tu vehículo en el Puesto #{spotNumber}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => scrollCarousel('left')}
+                      className="p-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition shadow-sm"
+                      title="Anterior"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollCarousel('right')}
+                      className="p-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition shadow-sm"
+                      title="Siguiente"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Horizontal Scrollable Carousel */}
+                <div
+                  ref={carouselRef}
+                  className="flex gap-3 overflow-x-auto pb-2 pt-1 scroll-smooth scrollbar-thin scrollbar-thumb-zinc-800 snap-x snap-mandatory"
+                  style={{ scrollbarWidth: 'thin' }}
+                >
+                  {accessoryProducts.map((prod) => (
+                    <div
+                      key={prod.id}
+                      className="w-[200px] flex-shrink-0 bg-zinc-900/90 border border-zinc-800 hover:border-amber-500/50 rounded-xl p-3 flex flex-col justify-between space-y-2 snap-start transition shadow-sm group"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase font-mono">
+                            {prod.category}
+                          </span>
+                          <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 rounded">
+                            Stock: {prod.stock}
+                          </span>
+                        </div>
+                        <h5 className="font-bold text-xs text-zinc-100 group-hover:text-amber-300 transition line-clamp-1">
+                          {prod.name}
+                        </h5>
+                        <p className="text-[10px] text-zinc-400 line-clamp-2 leading-relaxed">
+                          {prod.description}
+                        </p>
+                      </div>
+
+                      <div className="border-t border-zinc-800/80 pt-2 space-y-1.5">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-[9px] text-zinc-400">Precio:</span>
+                          <span className="font-mono font-black text-xs text-amber-300">
+                            {formatCLP(prod.price)}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAddShopProduct(prod)}
+                          disabled={prod.stock <= 0 || session.status !== 'active'}
+                          className="w-full py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-extrabold text-[10px] rounded-lg transition shadow-md shadow-amber-500/20 flex items-center justify-center gap-1 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Plus className="w-3 h-3 stroke-[3]" />
+                          <span>Pedir al Puesto #{spotNumber}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Quick Action Cards */}
             {session.status === 'active' && (
               <div className="grid grid-cols-2 gap-2.5 pt-1">
@@ -948,7 +1068,9 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
                     <Sparkles className="w-4 h-4 text-purple-400 group-hover:scale-110 transition" />
                   </div>
                   <p className="text-[10px] text-zinc-400">
-                    Servicios disponibles para tu tipo de vehículo.
+                    {isWashGloballyEnabled
+                      ? 'Servicios compatibles con tu vehículo.'
+                      : 'Temporalmente no disponible.'}
                   </p>
                 </button>
 
@@ -994,7 +1116,14 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
 
             {/* Services Grid (Filtered by Vehicle Type, no prices shown) */}
             <div className="space-y-3">
-              {availableClientWashServices.length === 0 ? (
+              {!isWashGloballyEnabled ? (
+                <div className="p-6 text-center text-zinc-400 bg-zinc-900/50 border border-amber-800/40 rounded-2xl space-y-1">
+                  <div className="font-bold text-amber-300 text-xs">Servicio de Lavado Temporalmente Deshabilitado</div>
+                  <p className="text-[11px] text-zinc-500">
+                    La administración ha pausado temporalmente las solicitudes de lavado desde el portal del cliente. Por favor consulte en caseta.
+                  </p>
+                </div>
+              ) : availableClientWashServices.length === 0 ? (
                 <div className="p-6 text-center text-zinc-500 bg-zinc-900/50 border border-zinc-800 rounded-2xl">
                   No hay servicios específicos configurados para este tipo de vehículo actualmente.
                 </div>

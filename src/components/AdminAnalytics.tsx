@@ -19,6 +19,9 @@ import {
   ShieldCheck,
   Percent,
   Key,
+  ShieldAlert,
+  History,
+  CheckCircle2,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import {
@@ -36,6 +39,7 @@ export const AdminAnalytics: React.FC = () => {
     accessorySales,
     monthlyContracts,
     washOrders,
+    vehicleAuditLogs,
     settings,
     currentTime,
   } = useParking();
@@ -576,6 +580,111 @@ export const AdminAnalytics: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* VEHICLE MODIFICATIONS & DELETIONS AUDIT LOG */}
+      <div className="bg-[#0F1117] border border-zinc-800 rounded-2xl p-5 text-white shadow-xl space-y-4 text-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="bg-indigo-500/10 text-indigo-400 text-xs px-2.5 py-1 rounded-full font-semibold border border-indigo-500/20 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                Seguridad & Control de Auditoría
+              </span>
+              <span className="text-xs text-zinc-400">Autorizaciones Requeridas</span>
+            </div>
+            <h3 className="text-sm font-bold text-zinc-100 mt-1 flex items-center gap-2">
+              <History className="w-4 h-4 text-indigo-400" />
+              Auditoría de Modificaciones & Eliminaciones de Vehículos
+            </h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Registro inmutable de todos los cambios, ediciones y eliminaciones de registros vehiculares con verificación de autorización por Administrador.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-zinc-300 font-mono font-bold text-xs">
+              {vehicleAuditLogs.length} eventos registrados
+            </span>
+          </div>
+        </div>
+
+        {vehicleAuditLogs.length === 0 ? (
+          <div className="text-center py-8 text-zinc-500 bg-zinc-900/40 rounded-xl border border-zinc-800/80">
+            <CheckCircle2 className="w-8 h-8 text-emerald-500/60 mx-auto mb-2" />
+            <p className="font-medium text-xs text-zinc-400">Sin modificaciones vehiculares pendientes de revisión</p>
+            <p className="text-[11px] text-zinc-500 mt-0.5">Todas las operaciones han sido registradas y validadas con normalidad.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-900 text-zinc-400 text-[10px] uppercase font-semibold">
+                <tr>
+                  <th className="p-3">Fecha / Hora</th>
+                  <th className="p-3">Operación</th>
+                  <th className="p-3">Patente</th>
+                  <th className="p-3">Operador / Usuario</th>
+                  <th className="p-3">Autorizado Por</th>
+                  <th className="p-3">Detalle del Cambio</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800">
+                {vehicleAuditLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-zinc-850/50 transition">
+                    <td className="p-3 font-mono text-[11px] text-zinc-400 whitespace-nowrap">
+                      {formatDateTime(log.timestamp)}
+                    </td>
+                    <td className="p-3">
+                      {log.action === 'delete' ? (
+                        <span className="bg-rose-950/80 text-rose-300 border border-rose-600/50 px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1">
+                          <ShieldAlert className="w-3 h-3 text-rose-400" />
+                          Eliminación
+                        </span>
+                      ) : log.action === 'edit' ? (
+                        <span className="bg-amber-950/80 text-amber-300 border border-amber-600/50 px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1">
+                          <History className="w-3 h-3 text-amber-400" />
+                          Edición
+                        </span>
+                      ) : (
+                        <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-600/50 px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                          Creación
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <span className="bg-zinc-900 border border-zinc-700 px-2 py-0.5 rounded text-white font-mono font-bold text-xs tracking-wider">
+                        {log.plate}
+                      </span>
+                    </td>
+                    <td className="p-3 font-medium text-zinc-200">
+                      <div>{log.user}</div>
+                      <div className="text-[10px] text-zinc-400 capitalize">Rol: {log.userRole}</div>
+                    </td>
+                    <td className="p-3">
+                      <span className="bg-indigo-950/80 text-indigo-300 border border-indigo-700/50 px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 w-fit">
+                        <Key className="w-3 h-3 text-indigo-400" />
+                        {log.authorizedByAdmin}
+                      </span>
+                    </td>
+                    <td className="p-3 text-zinc-300 max-w-md">
+                      <div className="font-semibold text-zinc-100">{log.description}</div>
+                      {log.changes && log.changes.length > 0 && (
+                        <div className="text-[10px] text-zinc-400 mt-1 space-y-0.5 font-mono">
+                          {log.changes.map((c, i) => (
+                            <div key={i} className="text-amber-300/90">
+                              • {c.field}: <span className="text-zinc-500 line-through">{String(c.oldValue || 'vacío')}</span> → <span className="text-emerald-400 font-bold">{String(c.newValue)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
