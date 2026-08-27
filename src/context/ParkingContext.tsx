@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { doc, onSnapshot, setDoc, deleteDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
   ParkingSpot,
@@ -437,9 +437,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('connected');
   const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(null);
   const isIncomingCloudUpdate = useRef<boolean>(false);
-  const isInitialCloudLoadComplete = useRef<boolean>(false);
-  const lastSyncedPayloadRef = useRef<string>('');
-
   const [simulatedMinutesAdded, setSimulatedMinutesAdded] = useState<number>(0);
   const [baseCurrentTime, setBaseCurrentTime] = useState<Date>(new Date());
 
@@ -453,174 +450,237 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const currentTime = new Date(baseCurrentTime.getTime() + simulatedMinutesAdded * 60000);
 
-  // Real-time listener: Multi-device instant synchronization via Firebase Firestore
-  useEffect(() => {
-    try {
-      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
-      const unsubscribe = onSnapshot(
-        liveDocRef,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            if (data) {
-              isIncomingCloudUpdate.current = true;
-              if (Array.isArray(data.spots)) setSpots(data.spots);
-              if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
-              if (Array.isArray(data.washServices)) setWashServices(data.washServices);
-              if (Array.isArray(data.washOrders)) setWashOrders(data.washOrders);
-              if (Array.isArray(data.accessoryProducts)) setAccessoryProducts(data.accessoryProducts);
-              if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
-              if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
-              if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
-              if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
-              if (Array.isArray(data.vehicleAuditLogs)) setVehicleAuditLogs(data.vehicleAuditLogs);
-              if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
-              if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
-              if (Array.isArray(data.expenses)) setExpenses(data.expenses);
-              if (typeof data.openingCash === 'number') setOpeningCash(data.openingCash);
-              if (Array.isArray(data.cashRegisterClosures)) setCashRegisterClosures(data.cashRegisterClosures);
-              if (Array.isArray(data.employees)) setEmployees(data.employees);
-              if (Array.isArray(data.payrollSettlements)) setPayrollSettlements(data.payrollSettlements);
-
-              setIsCloudSynced(true);
-              setCloudSyncStatus('connected');
-              setLastCloudSyncTime(new Date());
-
-              setTimeout(() => {
-                isIncomingCloudUpdate.current = false;
-                isInitialCloudLoadComplete.current = true;
-              }, 300);
-            }
-          } else {
-            // First-time database bootstrapping in Firestore
-            setDoc(
-              liveDocRef,
-              sanitizeForFirestore({
-                spots: INITIAL_SPOTS,
-                vehicles: INITIAL_VEHICLES,
-                washServices: INITIAL_WASH_SERVICES,
-                washOrders: [],
-                accessoryProducts: INITIAL_ACCESSORIES,
-                accessorySales: [],
-                monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
-                completedSessions: INITIAL_COMPLETED_SESSIONS,
-                vipPaymentRecords: [],
-                vehicleAuditLogs: [],
-                settings: DEFAULT_SETTINGS,
-                users: INITIAL_USERS,
-                expenses: INITIAL_EXPENSES,
-                openingCash: 50000,
-                cashRegisterClosures: [],
-                employees: INITIAL_EMPLOYEES,
-                payrollSettlements: [],
-                lastUpdatedAt: new Date().toISOString(),
-              })
-            )
-              .then(() => {
-                setIsCloudSynced(true);
-                setCloudSyncStatus('connected');
-                setLastCloudSyncTime(new Date());
-                isInitialCloudLoadComplete.current = true;
-              })
-              .catch((err) => {
-                console.warn('Could not initialize cloud document:', err);
-              });
-          }
-        },
-        (error) => {
-          console.warn('Firestore live sync error:', error);
-          setCloudSyncStatus('offline');
-        }
-      );
-
-      return () => unsubscribe();
-    } catch (err) {
-      console.warn('Error setting up Firestore listener:', err);
-      setCloudSyncStatus('offline');
-    }
-  }, []);
-
-  // Optimized Push local changes to Firestore: Only write on real state changes (Dirty check) & 30s batch window
-  useEffect(() => {
-    if (isIncomingCloudUpdate.current) return;
-    if (!isInitialCloudLoadComplete.current) return;
-
-    // Construct serialized snapshot of meaningful business state (ignoring clock ticks)
-    const currentPayloadObj = {
-      spots,
-      vehicles,
-      washServices,
-      washOrders,
-      accessoryProducts,
-      accessorySales,
-      monthlyContracts,
-      completedSessions,
-      vipPaymentRecords,
-      vehicleAuditLogs,
-      settings,
-      users,
-      expenses,
-      openingCash,
-      cashRegisterClosures,
-      employees,
-      payrollSettlements,
-    };
-
-    const serializedPayload = JSON.stringify(currentPayloadObj);
-
-    // Rule 2: "Solo si hay cambios reales" - Don't write if data is identical to last sync
-    if (serializedPayload === lastSyncedPayloadRef.current) {
-      return;
-    }
-
-    // Intervalo de actualización: Cada 50 segundos (50000ms) para ahorro óptimo de cuotas y red
-    const timer = setTimeout(() => {
+  // --- Hybrid Targeted Cloud Synchronization (Local-First Architecture) ---
+  // Sync essential active ticket data to Firestore 'active_tickets' collection for customer QR portal
+  const syncActiveTicketToFirestore = useCallback(
+    async (session: ParkingSession | null | undefined, customSettings?: ParkingSettings) => {
+      if (!session || !session.ticketNumber) return;
       try {
-        setCloudSyncStatus('syncing');
-        const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
-        setDoc(
-          liveDocRef,
+        const activeSettings = customSettings || settings;
+        const ticketDocRef = doc(db, 'active_tickets', session.ticketNumber);
+        await setDoc(
+          ticketDocRef,
           sanitizeForFirestore({
-            ...currentPayloadObj,
+            id: session.id,
+            ticketNumber: session.ticketNumber,
+            spotNumber: session.spotNumber,
+            plate: session.plate,
+            brand: session.brand || '',
+            model: session.model || '',
+            color: session.color || '',
+            year: session.year || null,
+            vehicleType: session.vehicleType || 'auto',
+            clientName: session.clientName || null,
+            clientPhone: session.clientPhone || null,
+            clientEmail: session.clientEmail || null,
+            entryTime: session.entryTime,
+            isManualEntryTime: !!session.isManualEntryTime,
+            status: session.status || 'active',
+            hasValetParking: !!session.hasValetParking,
+            valetParkingFee: session.valetParkingFee || 0,
+            valetDriver: session.valetDriver || null,
+            valetNotes: session.valetNotes || null,
+            parkingCost: session.parkingCost || 0,
+            totalServicesCost: session.totalServicesCost || 0,
+            totalAmount: session.totalAmount || 0,
+            washOrders: session.washOrders || [],
+            accessorySales: session.accessorySales || [],
+            customerPaymentPreference: session.customerPaymentPreference || null,
+            customerPaymentPreferenceTime: session.customerPaymentPreferenceTime || null,
+            rates: {
+              base30MinPrice: activeSettings.base30MinPrice,
+              extra10MinPrice: activeSettings.extra10MinPrice,
+              valetParkingPrice: activeSettings.valetParkingPrice ?? 2000,
+              parkingName: activeSettings.parkingName,
+              address: activeSettings.address,
+              phone: activeSettings.phone,
+              rut: activeSettings.rut,
+              siiOffice: activeSettings.siiOffice,
+            },
             lastUpdatedAt: new Date().toISOString(),
           }),
           { merge: true }
-        )
-          .then(() => {
-            lastSyncedPayloadRef.current = serializedPayload;
-            setIsCloudSynced(true);
-            setCloudSyncStatus('connected');
-            setLastCloudSyncTime(new Date());
-          })
-          .catch((err) => {
-            console.warn('Error updating Firestore in real-time:', err);
-            setCloudSyncStatus('error');
-          });
-      } catch (e) {
-        console.warn('Error syncing state to Firestore:', e);
+        );
+        setIsCloudSynced(true);
+        setCloudSyncStatus('connected');
+        setLastCloudSyncTime(new Date());
+      } catch (err) {
+        console.warn('Error syncing active ticket to Firestore:', err);
       }
-    }, 50000); // 50 segundos (50,000 ms) por actualización de estado/posición
+    },
+    [settings]
+  );
 
-    return () => clearTimeout(timer);
-  }, [
-    spots,
-    vehicles,
-    washServices,
-    washOrders,
-    accessoryProducts,
-    accessorySales,
-    monthlyContracts,
-    completedSessions,
-    vipPaymentRecords,
-    vehicleAuditLogs,
-    settings,
-    users,
-    expenses,
-    openingCash,
-    cashRegisterClosures,
-    employees,
-    payrollSettlements,
-  ]);
+  // Complete or clean up ticket from active tickets collection
+  const completeTicketInFirestore = useCallback(
+    async (
+      ticketNumber: string,
+      exitData?: { exitTime: string; totalAmount: number; paymentMethod: string }
+    ) => {
+      if (!ticketNumber) return;
+      try {
+        const ticketDocRef = doc(db, 'active_tickets', ticketNumber);
+        if (exitData) {
+          await setDoc(
+            ticketDocRef,
+            sanitizeForFirestore({
+              status: 'completed',
+              exitTime: exitData.exitTime,
+              totalAmount: exitData.totalAmount,
+              paymentMethod: exitData.paymentMethod,
+              lastUpdatedAt: new Date().toISOString(),
+            }),
+            { merge: true }
+          );
+        } else {
+          await deleteDoc(ticketDocRef);
+        }
+        setIsCloudSynced(true);
+        setCloudSyncStatus('connected');
+        setLastCloudSyncTime(new Date());
+      } catch (err) {
+        console.warn('Error completing/deleting ticket in Firestore:', err);
+      }
+    },
+    []
+  );
+
+  // Sync public catalog (wash services & accessory products) for QR portal clients
+  const syncPublicCatalogToFirestore = useCallback(
+    async (
+      services?: WashService[],
+      products?: AccessoryProduct[],
+      activeSettings?: ParkingSettings
+    ) => {
+      try {
+        const catalogDocRef = doc(db, 'garage_catalog', 'public_info');
+        const curServices = services || washServices;
+        const curProducts = products || accessoryProducts;
+        const curSettings = activeSettings || settings;
+
+        await setDoc(
+          catalogDocRef,
+          sanitizeForFirestore({
+            washServices: (curServices || []).filter((s) => s.availableInCustomerPortal !== false && s.enabledInClientPortal !== false),
+            accessoryProducts: (curProducts || []).filter((p) => p.stock > 0),
+            settings: {
+              parkingName: curSettings.parkingName,
+              address: curSettings.address,
+              phone: curSettings.phone,
+              rut: curSettings.rut,
+              base30MinPrice: curSettings.base30MinPrice,
+              extra10MinPrice: curSettings.extra10MinPrice,
+              valetParkingPrice: curSettings.valetParkingPrice ?? 2000,
+            },
+            lastUpdatedAt: new Date().toISOString(),
+          }),
+          { merge: true }
+        );
+        setIsCloudSynced(true);
+        setCloudSyncStatus('connected');
+        setLastCloudSyncTime(new Date());
+      } catch (err) {
+        console.warn('Error syncing public catalog to Firestore:', err);
+      }
+    },
+    [washServices, accessoryProducts, settings]
+  );
+
+  // Listen in real-time ONLY to active_tickets so admin automatically receives customer QR requests
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    try {
+      const ticketsColRef = collection(db, 'active_tickets');
+      unsubscribe = onSnapshot(
+        ticketsColRef,
+        (snapshot) => {
+          setIsCloudSynced(true);
+          setCloudSyncStatus('connected');
+          setLastCloudSyncTime(new Date());
+
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'modified' || change.type === 'added') {
+              const ticketData = change.doc.data();
+              if (ticketData && ticketData.status === 'active' && ticketData.spotNumber) {
+                setSpots((prevSpots) =>
+                  prevSpots.map((spot) => {
+                    if (
+                      spot.number === ticketData.spotNumber &&
+                      spot.currentSession &&
+                      spot.currentSession.ticketNumber === ticketData.ticketNumber
+                    ) {
+                      const localSession = spot.currentSession;
+                      const remoteWash = Array.isArray(ticketData.washOrders)
+                        ? ticketData.washOrders
+                        : localSession.washOrders;
+                      const remoteAcc = Array.isArray(ticketData.accessorySales)
+                        ? ticketData.accessorySales
+                        : localSession.accessorySales;
+                      const remotePref =
+                        ticketData.customerPaymentPreference || localSession.customerPaymentPreference;
+
+                      const hasWashDiff =
+                        JSON.stringify(remoteWash) !== JSON.stringify(localSession.washOrders);
+                      const hasAccDiff =
+                        JSON.stringify(remoteAcc) !== JSON.stringify(localSession.accessorySales);
+                      const hasPrefDiff = remotePref !== localSession.customerPaymentPreference;
+
+                      if (hasWashDiff || hasAccDiff || hasPrefDiff) {
+                        const washCost = (remoteWash || []).reduce(
+                          (sum: number, w: any) => sum + (w.price || 0),
+                          0
+                        );
+                        const accCost = (remoteAcc || []).reduce(
+                          (sum: number, a: any) => sum + (a.total || 0),
+                          0
+                        );
+                        const valetCost = localSession.hasValetParking
+                          ? localSession.valetParkingFee || 0
+                          : 0;
+                        const totalServices = washCost + accCost + valetCost;
+
+                        return {
+                          ...spot,
+                          currentSession: {
+                            ...localSession,
+                            washOrders: remoteWash,
+                            accessorySales: remoteAcc,
+                            customerPaymentPreference: remotePref,
+                            customerPaymentPreferenceTime:
+                              ticketData.customerPaymentPreferenceTime ||
+                              localSession.customerPaymentPreferenceTime,
+                            totalServicesCost: totalServices,
+                            totalAmount: localSession.parkingCost + totalServices,
+                          },
+                        };
+                      }
+                    }
+                    return spot;
+                  })
+                );
+              }
+            }
+          });
+        },
+        (error) => {
+          console.warn('Firestore active_tickets listener note:', error);
+          setCloudSyncStatus('offline');
+        }
+      );
+    } catch (err) {
+      console.warn('Error setting up active_tickets listener:', err);
+      setCloudSyncStatus('offline');
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Sync public catalog once on startup or when services/products change
+  useEffect(() => {
+    syncPublicCatalogToFirestore(washServices, accessoryProducts, settings);
+  }, [washServices, accessoryProducts, settings, syncPublicCatalogToFirestore]);
 
   // Persistence effects
   useEffect(() => {
@@ -790,13 +850,15 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       prev.map((s) => {
         if (s.number === spotNumber && s.currentSession) {
           matched = true;
+          const updatedSession: ParkingSession = {
+            ...s.currentSession,
+            customerPaymentPreference: preference,
+            customerPaymentPreferenceTime: new Date().toISOString(),
+          };
+          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...s,
-            currentSession: {
-              ...s.currentSession,
-              customerPaymentPreference: preference,
-              customerPaymentPreferenceTime: new Date().toISOString(),
-            },
+            currentSession: updatedSession,
           };
         }
         return s;
@@ -941,6 +1003,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return spot;
       })
     );
+
+    // Sync active ticket for customer QR portal
+    syncActiveTicketToFirestore(session, settings);
 
     return session;
   };
@@ -1087,6 +1152,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     );
 
+    // Sync updated ticket
+    syncActiveTicketToFirestore(updatedSession, settings);
+
     return {
       success: true,
       message: `Vehículo ${newPlate} actualizado correctamente en puesto #${targetSpotNum}.`,
@@ -1121,6 +1189,8 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             totalServicesCost: updatedServicesCost,
             totalAmount: (spot.currentSession.parkingCost || settings.base30MinPrice) + updatedServicesCost,
           };
+
+          syncActiveTicketToFirestore(updatedSession, settings);
 
           return {
             ...spot,
@@ -1224,6 +1294,13 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Save to historical completed sessions
     setCompletedSessions((prev) => [completedSession, ...prev]);
 
+    // Complete ticket in Firestore
+    completeTicketInFirestore(currentSession.ticketNumber, {
+      exitTime: effectiveExitTime,
+      totalAmount,
+      paymentMethod,
+    });
+
     // Free the spot (if it has an active contract active RIGHT NOW, return to 'reserved_monthly', otherwise 'available')
     setSpots((prev) =>
       prev.map((s) => {
@@ -1277,9 +1354,13 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const plate = spot.currentSession.plate;
     const sessionId = spot.currentSession.id;
+    const ticketNumber = spot.currentSession.ticketNumber;
 
     // Remove any active wash orders related to this canceled session
     setWashOrders((prev) => prev.filter((order) => order.sessionId !== sessionId));
+
+    // Remove ticket from active_tickets in Firestore
+    completeTicketInFirestore(ticketNumber);
 
     // Free the spot (if it has an active monthly contract active RIGHT NOW, return to 'reserved_monthly', otherwise 'available')
     setSpots((prev) =>
@@ -1328,14 +1409,16 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const updatedOrders = [...currentOrders, newOrder];
             const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
             const accCost = (spot.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
+            const updatedSession = {
+              ...spot.currentSession,
+              washOrders: updatedOrders,
+              totalServicesCost: washCost + accCost,
+              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+            };
+            syncActiveTicketToFirestore(updatedSession, settings);
             return {
               ...spot,
-              currentSession: {
-                ...spot.currentSession,
-                washOrders: updatedOrders,
-                totalServicesCost: washCost + accCost,
-                totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-              },
+              currentSession: updatedSession,
             };
           }
           return spot;
@@ -1371,12 +1454,14 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updatedWash = spot.currentSession.washOrders.map((w) =>
             w.id === orderId ? { ...w, status, washerName: washerName || w.washerName } : w
           );
+          const updatedSession = {
+            ...spot.currentSession,
+            washOrders: updatedWash,
+          };
+          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...spot,
-            currentSession: {
-              ...spot.currentSession,
-              washOrders: updatedWash,
-            },
+            currentSession: updatedSession,
           };
         }
         return spot;
@@ -1415,14 +1500,16 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updatedOrders = [...currentOrders, washOrder];
           const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
           const accCost = (s.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
+          const updatedSession = {
+            ...s.currentSession,
+            washOrders: updatedOrders,
+            totalServicesCost: washCost + accCost,
+            totalAmount: s.currentSession.parkingCost + washCost + accCost,
+          };
+          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...s,
-            currentSession: {
-              ...s.currentSession,
-              washOrders: updatedOrders,
-              totalServicesCost: washCost + accCost,
-              totalAmount: s.currentSession.parkingCost + washCost + accCost,
-            },
+            currentSession: updatedSession,
           };
         }
         return s;
@@ -1490,14 +1577,16 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const updatedAcc = [...currentAcc, ...items];
             const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
             const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
+            const updatedSession = {
+              ...spot.currentSession,
+              accessorySales: updatedAcc,
+              totalServicesCost: washCost + accCost,
+              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+            };
+            syncActiveTicketToFirestore(updatedSession, settings);
             return {
               ...spot,
-              currentSession: {
-                ...spot.currentSession,
-                accessorySales: updatedAcc,
-                totalServicesCost: washCost + accCost,
-                totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-              },
+              currentSession: updatedSession,
             };
           }
           return spot;
@@ -1549,14 +1638,16 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updatedAcc = [...currentAcc, ...items];
           const washCost = (s.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
           const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
+          const updatedSession = {
+            ...s.currentSession,
+            accessorySales: updatedAcc,
+            totalServicesCost: washCost + accCost,
+            totalAmount: s.currentSession.parkingCost + washCost + accCost,
+          };
+          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...s,
-            currentSession: {
-              ...s.currentSession,
-              accessorySales: updatedAcc,
-              totalServicesCost: washCost + accCost,
-              totalAmount: s.currentSession.parkingCost + washCost + accCost,
-            },
+            currentSession: updatedSession,
           };
         }
         return s;
@@ -1585,15 +1676,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updatedOrders = currentOrders.filter((w) => w.id !== orderId);
           const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
           const accCost = (spot.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
+          const updatedSession = {
+            ...spot.currentSession,
+            washOrders: updatedOrders,
+            totalServicesCost: washCost + accCost,
+            totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+          };
+          syncActiveTicketToFirestore(updatedSession, settings);
 
           return {
             ...spot,
-            currentSession: {
-              ...spot.currentSession,
-              washOrders: updatedOrders,
-              totalServicesCost: washCost + accCost,
-              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-            },
+            currentSession: updatedSession,
           };
         }
         return spot;
@@ -1654,15 +1747,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (spot.number === spotNumber && spot.currentSession) {
           const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
           const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
+          const updatedSession = {
+            ...spot.currentSession,
+            accessorySales: updatedAcc,
+            totalServicesCost: washCost + accCost,
+            totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+          };
+          syncActiveTicketToFirestore(updatedSession, settings);
 
           return {
             ...spot,
-            currentSession: {
-              ...spot.currentSession,
-              accessorySales: updatedAcc,
-              totalServicesCost: washCost + accCost,
-              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-            },
+            currentSession: updatedSession,
           };
         }
         return spot;
@@ -1728,15 +1823,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const updatedAcc = currentAcc.filter((i) => !saleProductIds.has(i.productId));
             const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
             const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
+            const updatedSession = {
+              ...spot.currentSession,
+              accessorySales: updatedAcc,
+              totalServicesCost: washCost + accCost,
+              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+            };
+            syncActiveTicketToFirestore(updatedSession, settings);
 
             return {
               ...spot,
-              currentSession: {
-                ...spot.currentSession,
-                accessorySales: updatedAcc,
-                totalServicesCost: washCost + accCost,
-                totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-              },
+              currentSession: updatedSession,
             };
           }
           return spot;
