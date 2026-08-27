@@ -143,6 +143,18 @@
     }
   },
   "firestore": {
+    "/tickets/{ticketId}": {
+      "schema": "parkingSession",
+      "description": "Sesiones activas e historial de tickets consultables por clientes y administración"
+    },
+    "/active_tickets/{ticketId}": {
+      "schema": "parkingSession",
+      "description": "Tickets activos sincronizados en tiempo real para el portal cliente QR"
+    },
+    "/garage_catalog/{catalogId}": {
+      "schema": "businessSettings",
+      "description": "Catálogo público de servicios de lavado, accesorios y tarifas oficiales"
+    },
     "/parkingSessions/{sessionId}": {
       "schema": "parkingSession",
       "description": "Estadías activas e históricas de vehículos en el estacionamiento"

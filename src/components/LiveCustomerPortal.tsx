@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Car,
   Clock,
@@ -28,10 +28,22 @@ import {
   Gift,
   Lock,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
 import { AccessorySaleItem, WashService, ParkingSession, VEHICLE_TYPES, VehicleType } from '../types';
+import { db } from '../firebase';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  where,
+  setDoc,
+} from 'firebase/firestore';
 
 interface LiveCustomerPortalProps {
   ticketNumber?: string | null;
@@ -47,10 +59,10 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
   const {
     spots,
     completedSessions,
-    currentTime,
-    settings,
-    washServices,
-    accessoryProducts,
+    currentTime: contextCurrentTime,
+    settings: contextSettings,
+    washServices: contextWashServices,
+    accessoryProducts: contextAccessoryProducts,
     getVehicleByPlate,
     requestCustomerWashOrder,
     requestCustomerAccessories,
@@ -58,6 +70,12 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     removeAccessoryItemFromSpot,
     setCustomerPaymentPreference,
   } = useParking();
+
+  // Real-time Firestore state
+  const [firestoreTickets, setFirestoreTickets] = useState<ParkingSession[]>([]);
+  const [remoteSession, setRemoteSession] = useState<ParkingSession | null>(null);
+  const [publicCatalogInfo, setPublicCatalogInfo] = useState<any>(null);
+  const [isSearchingFirestore, setIsSearchingFirestore] = useState(false);
 
   // Active plate or ticket query state
   const [searchedPlate, setSearchedPlate] = useState<string>(initialPlateProp || '');
@@ -69,6 +87,13 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
 
   const [activeTab, setActiveTab] = useState<'stay' | 'wash' | 'shop'>('stay');
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // Live client-side tick every second for smooth timer calculation
+  const [liveNow, setLiveNow] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setLiveNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Wash request modal / state
   const [selectedWashService, setSelectedWashService] = useState<WashService | null>(null);
@@ -85,10 +110,252 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
   // Customer payment choice: 'efectivo' | 'debito' | null
   const [customerPaymentChoice, setCustomerPaymentChoice] = useState<'efectivo' | 'debito' | null>(null);
   const [quickAddSuccess, setQuickAddSuccess] = useState<string | null>(null);
-  const carouselRef = React.useRef<HTMLDivElement>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
 
   // Normalize plate helper
   const normalizePlate = (str: string) => str.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
+  // Read URL query params on mount if not provided via props
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlPlate = params.get('plate');
+      const urlTicket = params.get('ticket');
+      if (urlPlate && !searchedPlate) {
+        setSearchedPlate(urlPlate);
+        setPlateInput(urlPlate);
+      }
+      if (urlTicket && !selectedTicketNumber) {
+        setSelectedTicketNumber(urlTicket);
+      }
+    } catch (e) {
+      console.warn('URL param parse error:', e);
+    }
+  }, [searchedPlate, selectedTicketNumber]);
+
+  // Real-time Firestore Listeners for tickets & public catalog
+  useEffect(() => {
+    let unsubTickets: (() => void) | undefined;
+    let unsubActive: (() => void) | undefined;
+    let unsubCatalog: (() => void) | undefined;
+    let unsubSesiones: (() => void) | undefined;
+
+    const handleSnapshot = (snapshot: any) => {
+      const list: ParkingSession[] = [];
+      snapshot.forEach((docSnap: any) => {
+        const raw = docSnap.data();
+        if (!raw) return;
+        const data = (raw.currentSession || raw) as ParkingSession;
+        const isOccupied =
+          (data.status as string) === 'occupied' ||
+          data.status === 'active' ||
+          (data as any).sessionStatus === 'active' ||
+          (data as any).isOccupied === true ||
+          (data.status !== 'completed' && (data.spotNumber !== undefined || !!data.plate));
+
+        if (data && (data.ticketNumber || data.plate) && isOccupied) {
+          list.push(data);
+        }
+      });
+      setFirestoreTickets((prev) => {
+        const map = new Map<string, ParkingSession>();
+        prev.forEach((t) => map.set(t.ticketNumber || t.plate, t));
+        list.forEach((t) => map.set(t.ticketNumber || t.plate, t));
+        return Array.from(map.values());
+      });
+    };
+
+    try {
+      unsubTickets = onSnapshot(
+        collection(db, 'tickets'),
+        handleSnapshot,
+        (err) => console.warn('Firestore tickets portal listener note:', err)
+      );
+      unsubActive = onSnapshot(
+        collection(db, 'active_tickets'),
+        handleSnapshot,
+        (err) => console.warn('Firestore active_tickets portal listener note:', err)
+      );
+      unsubSesiones = onSnapshot(
+        collection(db, 'sesiones'),
+        handleSnapshot,
+        (err) => console.warn('Firestore sesiones portal listener note:', err)
+      );
+      unsubCatalog = onSnapshot(
+        doc(db, 'garage_catalog', 'public_info'),
+        (snap) => {
+          if (snap.exists()) {
+            setPublicCatalogInfo(snap.data());
+          }
+        },
+        (err) => console.warn('Firestore catalog listener note:', err)
+      );
+    } catch (err) {
+      console.warn('Error connecting customer portal to Firestore:', err);
+    }
+
+    return () => {
+      if (unsubTickets) unsubTickets();
+      if (unsubActive) unsubActive();
+      if (unsubSesiones) unsubSesiones();
+      if (unsubCatalog) unsubCatalog();
+    };
+  }, []);
+
+  // Direct Firestore real-time listener for the currently searched plate / ticket
+  useEffect(() => {
+    if (!searchedPlate && !selectedTicketNumber) return;
+
+    let unsubDocTicket: (() => void) | undefined;
+    let unsubDocPlate: (() => void) | undefined;
+    let unsubDocClean: (() => void) | undefined;
+    const cleanPlate = searchedPlate ? searchedPlate.trim().toUpperCase() : '';
+    const norm = cleanPlate ? normalizePlate(cleanPlate) : '';
+
+    const executeDirectFetch = async () => {
+      try {
+        if (selectedTicketNumber) {
+          const snapT = await getDoc(doc(db, 'tickets', selectedTicketNumber));
+          if (snapT.exists()) {
+            const raw = snapT.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+          const snapA = await getDoc(doc(db, 'active_tickets', selectedTicketNumber));
+          if (snapA.exists()) {
+            const raw = snapA.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+        }
+
+        if (cleanPlate) {
+          // Direct doc by raw plate e.g. LRVL64
+          const snapRaw = await getDoc(doc(db, 'tickets', cleanPlate));
+          if (snapRaw.exists()) {
+            const raw = snapRaw.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+          const snapRawActive = await getDoc(doc(db, 'active_tickets', cleanPlate));
+          if (snapRawActive.exists()) {
+            const raw = snapRawActive.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+        }
+
+        if (norm) {
+          const snapNorm = await getDoc(doc(db, 'tickets', norm));
+          if (snapNorm.exists()) {
+            const raw = snapNorm.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+
+          const snapP = await getDoc(doc(db, 'tickets', `plate_${norm}`));
+          if (snapP.exists()) {
+            const raw = snapP.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+          const snapPA = await getDoc(doc(db, 'active_tickets', `plate_${norm}`));
+          if (snapPA.exists()) {
+            const raw = snapPA.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+
+          const q1 = query(collection(db, 'tickets'), where('plate', '==', cleanPlate));
+          const snapQ1 = await getDocs(q1);
+          if (!snapQ1.empty) {
+            const raw = snapQ1.docs[0].data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+
+          const q2 = query(collection(db, 'tickets'), where('normalizedPlate', '==', norm));
+          const snapQ2 = await getDocs(q2);
+          if (!snapQ2.empty) {
+            const raw = snapQ2.docs[0].data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+
+          const q3 = query(collection(db, 'active_tickets'), where('plate', '==', cleanPlate));
+          const snapQ3 = await getDocs(q3);
+          if (!snapQ3.empty) {
+            const raw = snapQ3.docs[0].data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Direct Firestore fetch error:', e);
+      }
+    };
+
+    executeDirectFetch();
+
+    if (selectedTicketNumber) {
+      try {
+        unsubDocTicket = onSnapshot(doc(db, 'tickets', selectedTicketNumber), (snap) => {
+          if (snap.exists()) {
+            const raw = snap.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+          }
+        });
+      } catch (e) {
+        console.warn('Doc ticket listener error:', e);
+      }
+    }
+
+    if (cleanPlate) {
+      try {
+        unsubDocClean = onSnapshot(doc(db, 'tickets', cleanPlate), (snap) => {
+          if (snap.exists()) {
+            const raw = snap.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+          }
+        });
+      } catch (e) {
+        console.warn('Doc clean plate listener error:', e);
+      }
+    }
+
+    if (norm) {
+      try {
+        unsubDocPlate = onSnapshot(doc(db, 'tickets', `plate_${norm}`), (snap) => {
+          if (snap.exists()) {
+            const raw = snap.data();
+            setRemoteSession((raw.currentSession || raw) as ParkingSession);
+          }
+        });
+      } catch (e) {
+        console.warn('Doc plate listener error:', e);
+      }
+    }
+
+    return () => {
+      if (unsubDocTicket) unsubDocTicket();
+      if (unsubDocClean) unsubDocClean();
+      if (unsubDocPlate) unsubDocPlate();
+    };
+  }, [searchedPlate, selectedTicketNumber]);
+
+  // Combine Settings & Services from Context or Public Catalog
+  const settings = {
+    ...contextSettings,
+    ...(publicCatalogInfo?.settings || {}),
+  };
+  const washServices: WashService[] =
+    contextWashServices && contextWashServices.length > 0
+      ? contextWashServices
+      : (publicCatalogInfo?.washServices || []);
+  const accessoryProducts =
+    contextAccessoryProducts && contextAccessoryProducts.length > 0
+      ? contextAccessoryProducts
+      : (publicCatalogInfo?.accessoryProducts || []);
 
   const scrollCarousel = (direction: 'left' | 'right') => {
     if (carouselRef.current) {
@@ -97,28 +364,36 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     }
   };
 
-  // Find active session by ticket or by plate
-  let activeSpot = spots.find((s) => {
-    if (!s.currentSession) return false;
-    if (selectedTicketNumber && s.currentSession.ticketNumber === selectedTicketNumber) {
-      return true;
-    }
-    if (searchedPlate && normalizePlate(s.currentSession.plate) === normalizePlate(searchedPlate)) {
-      return true;
-    }
+  // Find active session from:
+  // 1. Direct real-time remoteSession
+  // 2. Real-time firestoreTickets list
+  // 3. Local active spots
+  // 4. Completed sessions
+  const firestoreMatch = firestoreTickets.find((t) => {
+    if (selectedTicketNumber && t.ticketNumber === selectedTicketNumber) return true;
+    if (searchedPlate && normalizePlate(t.plate) === normalizePlate(searchedPlate)) return true;
     return false;
   });
 
-  let activeSession = activeSpot?.currentSession;
+  const localSpotMatch = spots.find((s) => {
+    if (!s.currentSession) return false;
+    if (selectedTicketNumber && s.currentSession.ticketNumber === selectedTicketNumber) return true;
+    if (searchedPlate && normalizePlate(s.currentSession.plate) === normalizePlate(searchedPlate)) return true;
+    return false;
+  });
 
-  // Fallback to completed session if not in active spots
-  let completedSession = completedSessions.find((s) => {
+  const localCompletedMatch = completedSessions.find((s) => {
     if (selectedTicketNumber && s.ticketNumber === selectedTicketNumber) return true;
     if (searchedPlate && normalizePlate(s.plate) === normalizePlate(searchedPlate)) return true;
     return false;
   });
 
-  const session: ParkingSession | undefined = activeSession || completedSession;
+  const session: ParkingSession | undefined =
+    remoteSession ||
+    firestoreMatch ||
+    localSpotMatch?.currentSession ||
+    localCompletedMatch;
+
   const spotNumber = session?.spotNumber;
 
   // Sync customer payment choice if updated on session
@@ -128,15 +403,44 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     }
   }, [session?.customerPaymentPreference]);
 
+  // Cloud Writeback Helper
+  const syncSessionToFirestoreCloud = useCallback(async (updated: ParkingSession) => {
+    try {
+      const cleanPlate = updated.plate.trim().toUpperCase();
+      const normPlate = cleanPlate.replace(/[^A-Z0-9]/g, '');
+      const payload = {
+        ...updated,
+        lastUpdatedAt: new Date().toISOString(),
+      };
+      await Promise.allSettled([
+        setDoc(doc(db, 'tickets', updated.ticketNumber), payload, { merge: true }),
+        setDoc(doc(db, 'tickets', `plate_${normPlate}`), payload, { merge: true }),
+        setDoc(doc(db, 'active_tickets', updated.ticketNumber), payload, { merge: true }),
+        setDoc(doc(db, 'active_tickets', `plate_${normPlate}`), payload, { merge: true }),
+      ]);
+    } catch (e) {
+      console.warn('Error syncing customer update to Firestore:', e);
+    }
+  }, []);
+
   const handleSelectPaymentChoice = (choice: 'efectivo' | 'debito') => {
     setCustomerPaymentChoice(choice);
+    if (session) {
+      const updated: ParkingSession = {
+        ...session,
+        customerPaymentPreference: choice,
+        customerPaymentPreferenceTime: new Date().toISOString(),
+      };
+      setRemoteSession(updated);
+      syncSessionToFirestoreCloud(updated);
+    }
     if (spotNumber !== undefined && session?.status === 'active') {
       setCustomerPaymentPreference(spotNumber, choice);
     }
   };
 
-  // Handle Search Submission
-  const handleSearchPlate = (e?: React.FormEvent) => {
+  // Handle Search Submission with Real-time Firestore Query
+  const handleSearchPlate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const clean = plateInput.trim().toUpperCase();
     if (!clean) {
@@ -145,7 +449,127 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     }
 
     const norm = normalizePlate(clean);
-    // Check if plate exists in active or completed sessions
+    setIsSearchingFirestore(true);
+    setSearchError(null);
+
+    // 1. Instant check in live firestoreTickets in memory
+    const matchFirestore = firestoreTickets.find(
+      (t) => normalizePlate(t.plate) === norm || t.ticketNumber.toUpperCase() === clean
+    );
+    if (matchFirestore) {
+      setRemoteSession(matchFirestore);
+      setSearchedPlate(matchFirestore.plate);
+      setSelectedTicketNumber(matchFirestore.ticketNumber);
+      setIsSearchingFirestore(false);
+      return;
+    }
+
+    // 2. Query Firestore directly by plate doc and tickets collection
+    try {
+      // 2a. Direct plate doc (e.g. 'LRVL64') in tickets & active_tickets
+      const snapDirectClean = await getDoc(doc(db, 'tickets', clean));
+      if (snapDirectClean.exists()) {
+        const raw = snapDirectClean.data();
+        const data = (raw.currentSession || raw) as ParkingSession;
+        setRemoteSession(data);
+        setSearchedPlate(data.plate);
+        setSelectedTicketNumber(data.ticketNumber);
+        setIsSearchingFirestore(false);
+        return;
+      }
+
+      const snapDirectCleanActive = await getDoc(doc(db, 'active_tickets', clean));
+      if (snapDirectCleanActive.exists()) {
+        const raw = snapDirectCleanActive.data();
+        const data = (raw.currentSession || raw) as ParkingSession;
+        setRemoteSession(data);
+        setSearchedPlate(data.plate);
+        setSelectedTicketNumber(data.ticketNumber);
+        setIsSearchingFirestore(false);
+        return;
+      }
+
+      // 2b. Direct normalized doc (e.g. 'plate_LRVL64')
+      if (norm) {
+        const snapPlate = await getDoc(doc(db, 'tickets', `plate_${norm}`));
+        if (snapPlate.exists()) {
+          const raw = snapPlate.data();
+          const data = (raw.currentSession || raw) as ParkingSession;
+          setRemoteSession(data);
+          setSearchedPlate(data.plate);
+          setSelectedTicketNumber(data.ticketNumber);
+          setIsSearchingFirestore(false);
+          return;
+        }
+
+        const snapPlateActive = await getDoc(doc(db, 'active_tickets', `plate_${norm}`));
+        if (snapPlateActive.exists()) {
+          const raw = snapPlateActive.data();
+          const data = (raw.currentSession || raw) as ParkingSession;
+          setRemoteSession(data);
+          setSearchedPlate(data.plate);
+          setSelectedTicketNumber(data.ticketNumber);
+          setIsSearchingFirestore(false);
+          return;
+        }
+
+        // 2c. Where plate == clean
+        const qPlateClean = query(collection(db, 'tickets'), where('plate', '==', clean));
+        const snapQPlateClean = await getDocs(qPlateClean);
+        if (!snapQPlateClean.empty) {
+          const raw = snapQPlateClean.docs[0].data();
+          const data = (raw.currentSession || raw) as ParkingSession;
+          setRemoteSession(data);
+          setSearchedPlate(data.plate);
+          setSelectedTicketNumber(data.ticketNumber);
+          setIsSearchingFirestore(false);
+          return;
+        }
+
+        // 2d. Where normalizedPlate == norm
+        const qNorm = query(collection(db, 'tickets'), where('normalizedPlate', '==', norm));
+        const snapQNorm = await getDocs(qNorm);
+        if (!snapQNorm.empty) {
+          const raw = snapQNorm.docs[0].data();
+          const data = (raw.currentSession || raw) as ParkingSession;
+          setRemoteSession(data);
+          setSearchedPlate(data.plate);
+          setSelectedTicketNumber(data.ticketNumber);
+          setIsSearchingFirestore(false);
+          return;
+        }
+
+        // 2e. Where plate == clean in active_tickets
+        const qActiveClean = query(collection(db, 'active_tickets'), where('plate', '==', clean));
+        const snapQActiveClean = await getDocs(qActiveClean);
+        if (!snapQActiveClean.empty) {
+          const raw = snapQActiveClean.docs[0].data();
+          const data = (raw.currentSession || raw) as ParkingSession;
+          setRemoteSession(data);
+          setSearchedPlate(data.plate);
+          setSelectedTicketNumber(data.ticketNumber);
+          setIsSearchingFirestore(false);
+          return;
+        }
+
+        // 2f. In sesiones collection
+        const qSesiones = query(collection(db, 'sesiones'), where('plate', '==', clean));
+        const snapQSesiones = await getDocs(qSesiones);
+        if (!snapQSesiones.empty) {
+          const raw = snapQSesiones.docs[0].data();
+          const data = (raw.currentSession || raw) as ParkingSession;
+          setRemoteSession(data);
+          setSearchedPlate(data.plate);
+          setSelectedTicketNumber(data.ticketNumber);
+          setIsSearchingFirestore(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Firestore query error:', err);
+    }
+
+    // 3. Fallback to local context spots and completed sessions
     const matchSpot = spots.find(
       (s) => s.currentSession && normalizePlate(s.currentSession.plate) === norm
     );
@@ -154,26 +578,29 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     if (matchSpot && matchSpot.currentSession) {
       setSearchedPlate(matchSpot.currentSession.plate);
       setSelectedTicketNumber(matchSpot.currentSession.ticketNumber);
+      setRemoteSession(matchSpot.currentSession);
       setSearchError(null);
     } else if (matchCompleted) {
       setSearchedPlate(matchCompleted.plate);
       setSelectedTicketNumber(matchCompleted.ticketNumber);
+      setRemoteSession(matchCompleted);
       setSearchError(null);
     } else {
       setSearchError(
-        `No encontramos ningún vehículo activo con la patente "${clean}". Revisa que esté bien escrita o acércate a la caseta.`
+        `No encontramos ningún vehículo activo con la patente "${clean}". Revisa que esté bien escrita o que haya sido registrado en la caseta de control.`
       );
     }
+    setIsSearchingFirestore(false);
   };
 
   const handleSelectQuickPlate = (plate: string) => {
     setPlateInput(plate);
     setSearchedPlate(plate);
-    const match = spots.find(
-      (s) => s.currentSession && normalizePlate(s.currentSession.plate) === normalizePlate(plate)
-    );
-    if (match && match.currentSession) {
-      setSelectedTicketNumber(match.currentSession.ticketNumber);
+    const match = firestoreTickets.find((t) => normalizePlate(t.plate) === normalizePlate(plate)) ||
+      spots.find((s) => s.currentSession && normalizePlate(s.currentSession.plate) === normalizePlate(plate))?.currentSession;
+    if (match) {
+      setSelectedTicketNumber(match.ticketNumber);
+      setRemoteSession(match);
       setSearchError(null);
     }
   };
@@ -182,6 +609,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     setSelectedTicketNumber(null);
     setSearchedPlate('');
     setPlateInput('');
+    setRemoteSession(null);
     setSearchError(null);
     setActiveTab('stay');
   };
@@ -240,21 +668,70 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     if (!selectedWashService || !session || spotNumber === undefined || session.status !== 'active')
       return;
 
-    const res = requestCustomerWashOrder(spotNumber, selectedWashService.id, washNotes.trim());
-    if (res) {
-      setWashSuccessMsg(
-        `¡Servicio "${selectedWashService.name}" solicitado con éxito! Se cargó a tu ticket.`
-      );
-      setSelectedWashService(null);
-      setWashNotes('');
-      setTimeout(() => setWashSuccessMsg(null), 5000);
-      setActiveTab('stay');
+    const newOrder = {
+      id: `wo_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      spotNumber: spotNumber || session.spotNumber || 1,
+      ticketId: session.ticketNumber,
+      plate: session.plate,
+      serviceId: selectedWashService.id,
+      serviceName: selectedWashService.name,
+      price: selectedWashService.price,
+      status: 'pending' as const,
+      requestedAt: new Date().toISOString(),
+      notes: washNotes.trim() ? `📱 QR Cliente: ${washNotes.trim()}` : '📱 Solicitado desde Portal QR Móvil',
+      paid: false,
+    };
+
+    const currentOrders = session.washOrders || [];
+    const updatedOrders = [...currentOrders, newOrder];
+    const washCost = updatedOrders.reduce((sum, w) => sum + (w.price || 0), 0);
+    const accCost = (session.accessorySales || []).reduce((sum, a) => sum + (a.total || 0), 0);
+    const valetCost = session.hasValetParking ? (session.valetParkingFee || 0) : 0;
+    const totalServices = washCost + accCost + valetCost;
+
+    const updatedSession: ParkingSession = {
+      ...session,
+      washOrders: updatedOrders,
+      totalServicesCost: totalServices,
+      totalAmount: (session.parkingCost || 0) + totalServices,
+    };
+
+    setRemoteSession(updatedSession);
+    syncSessionToFirestoreCloud(updatedSession);
+
+    if (spotNumber !== undefined && session.status === 'active') {
+      requestCustomerWashOrder(spotNumber, selectedWashService.id, washNotes.trim());
     }
+
+    setWashSuccessMsg(
+      `¡Servicio "${selectedWashService.name}" solicitado con éxito! Se cargó a tu ticket.`
+    );
+    setSelectedWashService(null);
+    setWashNotes('');
+    setTimeout(() => setWashSuccessMsg(null), 5000);
+    setActiveTab('stay');
   };
 
-  // Cancel / Delete a Wash Order (placed by mistake or cancelled by customer)
+  // Cancel / Delete a Wash Order
   const handleCancelWashOrder = (orderId: string, serviceName: string) => {
-    if (!spotNumber) return;
+    if (!session || !spotNumber) return;
+
+    const updatedOrders = (session.washOrders || []).filter((w) => w.id !== orderId);
+    const washCost = updatedOrders.reduce((sum, w) => sum + (w.price || 0), 0);
+    const accCost = (session.accessorySales || []).reduce((sum, a) => sum + (a.total || 0), 0);
+    const valetCost = session.hasValetParking ? (session.valetParkingFee || 0) : 0;
+    const totalServices = washCost + accCost + valetCost;
+
+    const updatedSession: ParkingSession = {
+      ...session,
+      washOrders: updatedOrders,
+      totalServicesCost: totalServices,
+      totalAmount: (session.parkingCost || 0) + totalServices,
+    };
+
+    setRemoteSession(updatedSession);
+    syncSessionToFirestoreCloud(updatedSession);
+
     const res = removeWashOrder(orderId, spotNumber);
     if (res.success) {
       setWashSuccessMsg(`🗑️ Se canceló el servicio "${serviceName}" y fue descontado de tu ticket.`);
@@ -262,9 +739,26 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     }
   };
 
-  // Cancel / Delete an Accessory Item (placed by mistake or cancelled by customer)
+  // Cancel / Delete an Accessory Item
   const handleCancelAccessoryItem = (productId: string, productName: string) => {
-    if (!spotNumber) return;
+    if (!session || !spotNumber) return;
+
+    const updatedSales = (session.accessorySales || []).filter((s) => s.productId !== productId);
+    const washCost = (session.washOrders || []).reduce((sum, w) => sum + (w.price || 0), 0);
+    const accCost = updatedSales.reduce((sum, a) => sum + (a.total || 0), 0);
+    const valetCost = session.hasValetParking ? (session.valetParkingFee || 0) : 0;
+    const totalServices = washCost + accCost + valetCost;
+
+    const updatedSession: ParkingSession = {
+      ...session,
+      accessorySales: updatedSales,
+      totalServicesCost: totalServices,
+      totalAmount: (session.parkingCost || 0) + totalServices,
+    };
+
+    setRemoteSession(updatedSession);
+    syncSessionToFirestoreCloud(updatedSession);
+
     const res = removeAccessoryItemFromSpot(spotNumber, productId);
     if (res.success) {
       setShopSuccessMsg(`🗑️ Se eliminó "${productName}" y su valor fue descontado de tu ticket.`);
@@ -288,6 +782,23 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
       };
     });
 
+    const currentSales = session.accessorySales || [];
+    const updatedSales = [...currentSales, ...items];
+    const washCost = (session.washOrders || []).reduce((sum, w) => sum + (w.price || 0), 0);
+    const accCost = updatedSales.reduce((sum, a) => sum + (a.total || 0), 0);
+    const valetCost = session.hasValetParking ? (session.valetParkingFee || 0) : 0;
+    const totalServices = washCost + accCost + valetCost;
+
+    const updatedSession: ParkingSession = {
+      ...session,
+      accessorySales: updatedSales,
+      totalServicesCost: totalServices,
+      totalAmount: (session.parkingCost || 0) + totalServices,
+    };
+
+    setRemoteSession(updatedSession);
+    syncSessionToFirestoreCloud(updatedSession);
+
     const success = requestCustomerAccessories(spotNumber, items, shopNotes.trim());
     if (success) {
       setShopSuccessMsg(
@@ -305,7 +816,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
   // Quick 1-click add suggested shop accessory to active stay ticket
   const handleQuickAddShopProduct = (product: any) => {
     if (spotNumber && session?.status === 'active') {
-      const success = requestCustomerAccessories(spotNumber, [
+      const items: AccessorySaleItem[] = [
         {
           productId: product.id,
           productName: product.name,
@@ -313,7 +824,26 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
           unitPrice: product.price,
           total: product.price,
         },
-      ]);
+      ];
+
+      const currentSales = session.accessorySales || [];
+      const updatedSales = [...currentSales, ...items];
+      const washCost = (session.washOrders || []).reduce((sum, w) => sum + (w.price || 0), 0);
+      const accCost = updatedSales.reduce((sum, a) => sum + (a.total || 0), 0);
+      const valetCost = session.hasValetParking ? (session.valetParkingFee || 0) : 0;
+      const totalServices = washCost + accCost + valetCost;
+
+      const updatedSession: ParkingSession = {
+        ...session,
+        accessorySales: updatedSales,
+        totalServicesCost: totalServices,
+        totalAmount: (session.parkingCost || 0) + totalServices,
+      };
+
+      setRemoteSession(updatedSession);
+      syncSessionToFirestoreCloud(updatedSession);
+
+      const success = requestCustomerAccessories(spotNumber, items);
       if (success) {
         setQuickAddSuccess(`¡${product.name} (${formatCLP(product.price)}) agregado al ticket de tu puesto #${spotNumber}!`);
         setTimeout(() => setQuickAddSuccess(null), 4500);
@@ -335,7 +865,9 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     return matchesCat && matchesSearch;
   });
 
-  const activeOccupiedSpots = spots.filter((s) => s.status === 'occupied' && s.currentSession);
+  const activeOccupiedSpots = firestoreTickets.length > 0
+    ? firestoreTickets.map((t) => ({ plate: t.plate, spotNumber: t.spotNumber }))
+    : spots.filter((s) => s.status === 'occupied' && s.currentSession).map((s) => ({ plate: s.currentSession!.plate, spotNumber: s.number }));
 
   // =========================================================================
   // VIEW 1: SEARCH / INPUT VEHICLE PLATE SCREEN (WHEN SCANNED FROM SINGLE QR)
@@ -422,10 +954,20 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-extrabold rounded-xl shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2 text-sm border border-indigo-400/30 active:scale-[0.99]"
+                  disabled={isSearchingFirestore}
+                  className="w-full py-3 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 disabled:opacity-70 text-white font-extrabold rounded-xl shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2 text-sm border border-indigo-400/30 active:scale-[0.99]"
                 >
-                  <Search className="w-4 h-4" />
-                  Consultar Mi Vehículo
+                  {isSearchingFirestore ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Consultando en Firestore...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      <span>Consultar Mi Vehículo</span>
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -484,7 +1026,7 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
   // =========================================================================
   const pricing = calculateParkingFee(
     session.entryTime,
-    session.exitTime ? new Date(session.exitTime) : currentTime,
+    session.exitTime ? new Date(session.exitTime) : liveNow,
     undefined,
     settings.base30MinPrice,
     settings.extra10MinPrice
