@@ -263,54 +263,21 @@ interface ParkingContextType {
 
 const ParkingContext = createContext<ParkingContextType | undefined>(undefined);
 
-const STORAGE_KEYS = {
-  SPOTS: 'parking_app_spots_v3_prod',
-  VEHICLES: 'parking_app_vehicles_v3_prod',
-  WASH_SERVICES: 'parking_app_wash_services_v3_prod',
-  WASH_ORDERS: 'parking_app_wash_orders_v3_prod',
-  ACCESSORIES: 'parking_app_accessories_v3_prod',
-  SALES: 'parking_app_sales_v3_prod',
-  CONTRACTS: 'parking_app_contracts_v3_prod',
-  SESSIONS_HIST: 'parking_app_hist_sessions_v3_prod',
-  SETTINGS: 'parking_app_settings_v3_prod',
-  USERS: 'parking_app_users_v3_prod',
-  ACTIVE_USER: 'parking_app_active_user_v3_prod',
-  AUTH_STATE: 'parking_app_auth_state_v3_prod',
-  EXPENSES: 'parking_app_expenses_v3_prod',
-  EMPLOYEES: 'parking_app_employees_v3_prod',
-  PAYROLL: 'parking_app_payroll_v3_prod',
-  CASH_CLOSURES: 'parking_app_cash_closures_v3_prod',
-  OPENING_CASH: 'parking_app_opening_cash_v3_prod',
-  CASH_SHIFT: 'parking_app_cash_shift_v3_prod',
-  VIP_PAYMENTS: 'parking_app_vip_payments_v3_prod',
-  VEHICLE_AUDIT_LOGS: 'parking_app_vehicle_audit_logs_v1',
-  SNAPSHOTS: 'bamo_auto_snapshots_history_v1',
-};
+// Ensure local storage is wiped so no residual or outdated local data is ever accessed
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.clear();
+  }
+} catch {
+  // safe fallback
+}
 
 export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [spots, setSpots] = useState<ParkingSpot[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SPOTS);
-    return saved ? JSON.parse(saved) : INITIAL_SPOTS;
-  });
-
-  const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.VEHICLES);
-    return saved ? JSON.parse(saved) : INITIAL_VEHICLES;
-  });
-
-  const [vehicleAuditLogs, setVehicleAuditLogs] = useState<VehicleAuditLog[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.VEHICLE_AUDIT_LOGS);
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [washServices, setWashServices] = useState<WashService[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.WASH_SERVICES);
-    return saved ? JSON.parse(saved) : INITIAL_WASH_SERVICES;
-  });
-
+  const [spots, setSpots] = useState<ParkingSpot[]>(INITIAL_SPOTS);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
+  const [vehicleAuditLogs, setVehicleAuditLogs] = useState<VehicleAuditLog[]>([]);
+  const [washServices, setWashServices] = useState<WashService[]>(INITIAL_WASH_SERVICES);
   const [washOrders, setWashOrders] = useState<WashOrder[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.WASH_ORDERS);
-    if (saved) return JSON.parse(saved);
     const orders: WashOrder[] = [];
     INITIAL_SPOTS.forEach((s) => {
       if (s.currentSession?.washOrders) {
@@ -319,124 +286,47 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
     return orders;
   });
-
-  const [accessoryProducts, setAccessoryProducts] = useState<AccessoryProduct[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ACCESSORIES);
-    return saved ? JSON.parse(saved) : INITIAL_ACCESSORIES;
-  });
-
-  const [accessorySales, setAccessorySales] = useState<AccessorySale[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SALES);
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [monthlyContracts, setMonthlyContracts] = useState<MonthlyContract[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CONTRACTS);
-    return saved ? JSON.parse(saved) : INITIAL_MONTHLY_CONTRACTS;
-  });
-
-  const [completedSessions, setCompletedSessions] = useState<ParkingSession[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SESSIONS_HIST);
-    return saved ? JSON.parse(saved) : INITIAL_COMPLETED_SESSIONS;
-  });
-
-  const [vipPaymentRecords, setVipPaymentRecords] = useState<VIPPaymentRecord[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.VIP_PAYMENTS);
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [settings, setSettings] = useState<ParkingSettings>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-    return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
-  });
+  const [accessoryProducts, setAccessoryProducts] = useState<AccessoryProduct[]>(INITIAL_ACCESSORIES);
+  const [accessorySales, setAccessorySales] = useState<AccessorySale[]>([]);
+  const [monthlyContracts, setMonthlyContracts] = useState<MonthlyContract[]>(INITIAL_MONTHLY_CONTRACTS);
+  const [completedSessions, setCompletedSessions] = useState<ParkingSession[]>(INITIAL_COMPLETED_SESSIONS);
+  const [vipPaymentRecords, setVipPaymentRecords] = useState<VIPPaymentRecord[]>([]);
+  const [settings, setSettings] = useState<ParkingSettings>(DEFAULT_SETTINGS);
 
   // Users with 8-digit PIN (default "12345678")
-  const [users, setUsers] = useState<AppUser[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
-
-  const [currentUser, setCurrentUser] = useState<AppUser>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_USER);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return INITIAL_USERS[0];
-      }
-    }
-    return INITIAL_USERS[0];
-  });
-
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.AUTH_STATE);
-    return saved === 'true';
-  });
+  const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
+  const [currentUser, setCurrentUser] = useState<AppUser>(INITIAL_USERS[0]);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
 
   // Expenses & Cash register
-  const [expenses, setExpenses] = useState<BusinessExpense[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.EXPENSES);
-    return saved ? JSON.parse(saved) : INITIAL_EXPENSES;
-  });
-
-  const [openingCash, setOpeningCash] = useState<number>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.OPENING_CASH);
-    return saved ? Number(saved) : 50000;
-  });
-
-  const [cashRegisterClosures, setCashRegisterClosures] = useState<CashRegisterCloseRecord[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CASH_CLOSURES);
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [currentCashShift, setCurrentCashShift] = useState<CashRegisterOpeningRecord | null>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CASH_SHIFT);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.status === 'open') return parsed;
-      } catch {
-        return null;
-      }
-    }
-    return {
-      id: 'shift_default',
-      date: new Date().toISOString().split('T')[0],
-      openedAt: new Date().toISOString(),
-      cashierName: 'Administrador Principal',
-      initialCash: 50000,
-      status: 'open',
-    };
+  const [expenses, setExpenses] = useState<BusinessExpense[]>(INITIAL_EXPENSES);
+  const [openingCash, setOpeningCash] = useState<number>(50000);
+  const [cashRegisterClosures, setCashRegisterClosures] = useState<CashRegisterCloseRecord[]>([]);
+  const [currentCashShift, setCurrentCashShift] = useState<CashRegisterOpeningRecord | null>({
+    id: 'shift_default',
+    date: new Date().toISOString().split('T')[0],
+    openedAt: new Date().toISOString(),
+    cashierName: 'Administrador Principal',
+    initialCash: 50000,
+    status: 'open',
   });
 
   const isCashRegisterOpen = currentCashShift?.status === 'open';
 
   // Employees & Payroll
-  const [employees, setEmployees] = useState<Employee[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
-    return saved ? JSON.parse(saved) : INITIAL_EMPLOYEES;
-  });
-
-  const [payrollSettlements, setPayrollSettlements] = useState<PayrollSettlement[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PAYROLL);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
+  const [payrollSettlements, setPayrollSettlements] = useState<PayrollSettlement[]>([]);
 
   // Auto Snapshots for instant recovery
-  const [autoSnapshots, setAutoSnapshots] = useState<AutoSnapshot[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SNAPSHOTS);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [autoSnapshots, setAutoSnapshots] = useState<AutoSnapshot[]>([]);
 
   // Cloud Firestore Sync State
+  const [isLoadedFromCloud, setIsLoadedFromCloud] = useState<boolean>(false);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(true);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('connected');
   const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(null);
   const isIncomingCloudUpdate = useRef<boolean>(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [simulatedMinutesAdded, setSimulatedMinutesAdded] = useState<number>(0);
   const [baseCurrentTime, setBaseCurrentTime] = useState<Date>(new Date());
 
@@ -776,38 +666,175 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     syncPublicCatalogToFirestore(washServices, accessoryProducts, settings);
   }, [washServices, accessoryProducts, settings, syncPublicCatalogToFirestore]);
 
-  // Persistence effects
+  // Real-time Firestore sync listener for central garage state
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SPOTS, JSON.stringify(spots));
-  }, [spots]);
+    let unsubscribe: (() => void) | undefined;
+    const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(vehicles));
-  }, [vehicles]);
+    try {
+      unsubscribe = onSnapshot(
+        liveDocRef,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            isIncomingCloudUpdate.current = true;
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.VEHICLE_AUDIT_LOGS, JSON.stringify(vehicleAuditLogs));
-  }, [vehicleAuditLogs]);
+            if (Array.isArray(data.spots)) setSpots(data.spots);
+            if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
+            if (Array.isArray(data.vehicleAuditLogs)) setVehicleAuditLogs(data.vehicleAuditLogs);
+            if (Array.isArray(data.washServices)) setWashServices(data.washServices);
+            if (Array.isArray(data.washOrders)) setWashOrders(data.washOrders);
+            if (Array.isArray(data.accessoryProducts)) setAccessoryProducts(data.accessoryProducts);
+            if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
+            if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
+            if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
+            if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
+            if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+            if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
+            if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+            if (typeof data.openingCash === 'number') setOpeningCash(data.openingCash);
+            if (Array.isArray(data.cashRegisterClosures)) setCashRegisterClosures(data.cashRegisterClosures);
+            if (data.currentCashShift) setCurrentCashShift(data.currentCashShift);
+            if (Array.isArray(data.employees)) setEmployees(data.employees);
+            if (Array.isArray(data.payrollSettlements)) setPayrollSettlements(data.payrollSettlements);
+            if (Array.isArray(data.autoSnapshots)) setAutoSnapshots(data.autoSnapshots);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.WASH_SERVICES, JSON.stringify(washServices));
-  }, [washServices]);
+            setIsLoadedFromCloud(true);
+            setIsCloudSynced(true);
+            setCloudSyncStatus('connected');
+            setLastCloudSyncTime(new Date());
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.WASH_ORDERS, JSON.stringify(washOrders));
-  }, [washOrders]);
+            setTimeout(() => {
+              isIncomingCloudUpdate.current = false;
+            }, 300);
+          } else {
+            // Fresh database: write initial default dataset into Firestore
+            const initialPayload = sanitizeForFirestore({
+              spots: INITIAL_SPOTS,
+              vehicles: INITIAL_VEHICLES,
+              vehicleAuditLogs: [],
+              washServices: INITIAL_WASH_SERVICES,
+              washOrders: [],
+              accessoryProducts: INITIAL_ACCESSORIES,
+              accessorySales: [],
+              monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
+              completedSessions: INITIAL_COMPLETED_SESSIONS,
+              vipPaymentRecords: [],
+              settings: DEFAULT_SETTINGS,
+              users: INITIAL_USERS,
+              expenses: INITIAL_EXPENSES,
+              openingCash: 50000,
+              cashRegisterClosures: [],
+              currentCashShift: {
+                id: 'shift_default',
+                date: new Date().toISOString().split('T')[0],
+                openedAt: new Date().toISOString(),
+                cashierName: 'Administrador Principal',
+                initialCash: 50000,
+                status: 'open',
+              },
+              employees: INITIAL_EMPLOYEES,
+              payrollSettlements: [],
+              autoSnapshots: [],
+              lastUpdatedAt: new Date().toISOString(),
+            });
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ACCESSORIES, JSON.stringify(accessoryProducts));
-  }, [accessoryProducts]);
+            for (const targetDb of allDbs) {
+              setDoc(doc(targetDb, 'garage_state', 'bamo_garage_main'), initialPayload, { merge: true }).catch(() => {});
+            }
+            setIsLoadedFromCloud(true);
+            setIsCloudSynced(true);
+            setCloudSyncStatus('connected');
+            setLastCloudSyncTime(new Date());
+          }
+        },
+        (error) => {
+          console.warn('Firestore real-time state listener note:', error);
+          setCloudSyncStatus('error');
+        }
+      );
+    } catch (err) {
+      console.warn('Error setting up central garage_state listener:', err);
+    }
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(accessorySales));
-  }, [accessorySales]);
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
+  // Automatic Firestore persistence whenever state changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CONTRACTS, JSON.stringify(monthlyContracts));
-  }, [monthlyContracts]);
+    if (!isLoadedFromCloud || isIncomingCloudUpdate.current) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        setCloudSyncStatus('syncing');
+        const payload = sanitizeForFirestore({
+          spots,
+          vehicles,
+          vehicleAuditLogs,
+          washServices,
+          washOrders,
+          accessoryProducts,
+          accessorySales,
+          monthlyContracts,
+          completedSessions,
+          vipPaymentRecords,
+          settings,
+          users,
+          expenses,
+          openingCash,
+          cashRegisterClosures,
+          currentCashShift,
+          employees,
+          payrollSettlements,
+          autoSnapshots,
+          lastUpdatedAt: new Date().toISOString(),
+        });
+
+        const promises = allDbs.map((targetDb) =>
+          setDoc(doc(targetDb, 'garage_state', 'bamo_garage_main'), payload, { merge: true })
+        );
+        await Promise.allSettled(promises);
+
+        setIsCloudSynced(true);
+        setCloudSyncStatus('connected');
+        setLastCloudSyncTime(new Date());
+      } catch (err) {
+        console.warn('Error syncing state changes to Firestore:', err);
+        setCloudSyncStatus('error');
+      }
+    }, 500);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [
+    isLoadedFromCloud,
+    spots,
+    vehicles,
+    vehicleAuditLogs,
+    washServices,
+    washOrders,
+    accessoryProducts,
+    accessorySales,
+    monthlyContracts,
+    completedSessions,
+    vipPaymentRecords,
+    settings,
+    users,
+    expenses,
+    openingCash,
+    cashRegisterClosures,
+    currentCashShift,
+    employees,
+    payrollSettlements,
+    autoSnapshots,
+  ]);
 
   // Synchronize dynamic contract spot reservations when time/schedules transition (e.g. Day -> Night or Night -> Day)
   useEffect(() => {
@@ -838,46 +865,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return changed ? nextSpots : prevSpots;
     });
   }, [currentTime, monthlyContracts, settings]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SESSIONS_HIST, JSON.stringify(completedSessions));
-  }, [completedSessions]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.VIP_PAYMENTS, JSON.stringify(vipPaymentRecords));
-  }, [vipPaymentRecords]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-  }, [settings]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  }, [users]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(currentUser));
-  }, [currentUser]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses));
-  }, [expenses]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.OPENING_CASH, String(openingCash));
-  }, [openingCash]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CASH_CLOSURES, JSON.stringify(cashRegisterClosures));
-  }, [cashRegisterClosures]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
-  }, [employees]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PAYROLL, JSON.stringify(payrollSettlements));
-  }, [payrollSettlements]);
 
   // Lookup vehicle
   const getVehicleByPlate = (plate: string): Vehicle | undefined => {
@@ -2363,14 +2350,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     setCurrentUser(user);
     setIsAuthenticated(true);
-    localStorage.setItem(STORAGE_KEYS.AUTH_STATE, 'true');
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_USER, JSON.stringify(user));
     return { success: true };
   };
 
   const logout = () => {
     setIsAuthenticated(false);
-    localStorage.removeItem(STORAGE_KEYS.AUTH_STATE);
   };
 
   const lockSystem = () => {
@@ -2412,8 +2396,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     setCurrentCashShift(newShift);
     setOpeningCash(initialCash);
-    localStorage.setItem(STORAGE_KEYS.CASH_SHIFT, JSON.stringify(newShift));
-    localStorage.setItem(STORAGE_KEYS.OPENING_CASH, String(initialCash));
     return newShift;
   };
 
@@ -2429,7 +2411,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         status: 'closed',
       };
       setCurrentCashShift(closedShift);
-      localStorage.setItem(STORAGE_KEYS.CASH_SHIFT, JSON.stringify(closedShift));
     }
     return newRecord;
   };
