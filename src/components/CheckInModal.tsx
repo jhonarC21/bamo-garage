@@ -227,19 +227,9 @@ export const CheckInModal: React.FC<CheckInModalProps> = ({
                   <option
                     key={s.number}
                     value={s.number}
-                    disabled={s.status !== 'available' && s.number !== initialSpotNumber}
+                    disabled={s.status === 'occupied' && s.number !== initialSpotNumber}
                   >
-                    Puesto #{s.number} {
-                      s.status === 'occupied'
-                        ? '(Ocupado)'
-                        : s.status === 'reserved_monthly'
-                        ? `(Arriendo Activo ${s.monthlyContract?.type === 'nocturno' ? 'Nocturno' : s.monthlyContract?.type === 'diurno' ? 'Diurno' : '24/7'})`
-                        : s.monthlyContract?.type === 'nocturno'
-                        ? '(Disponible - Arriendo Nocturno 20:00)'
-                        : s.monthlyContract?.type === 'diurno'
-                        ? '(Disponible - Arriendo Diurno 08:00)'
-                        : '(Disponible)'
-                    }
+                    Puesto #{s.number} {s.status === 'occupied' ? '(Ocupado)' : s.status === 'reserved_monthly' ? '(Arriendo)' : '(Disponible)'}
                   </option>
                 ))}
               </select>

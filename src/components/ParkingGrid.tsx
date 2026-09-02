@@ -21,8 +21,6 @@ import {
   Edit3,
   CreditCard,
   Banknote,
-  Moon,
-  Sun,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, calculateVacancyLoss, formatCLP, formatTimeOnly } from '../utils/pricing';
@@ -456,22 +454,8 @@ const SpotCard: React.FC<SpotCardProps> = ({
           )}
           {isReserved && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-950 text-purple-300 border border-purple-700/60">
-              {spot.monthlyContract?.type === 'nocturno' ? (
-                <>
-                  <Moon className="w-3 h-3 text-purple-300" />
-                  Arriendo Nocturno
-                </>
-              ) : spot.monthlyContract?.type === 'diurno' ? (
-                <>
-                  <Sun className="w-3 h-3 text-amber-300" />
-                  Arriendo Diurno
-                </>
-              ) : (
-                <>
-                  <Calendar className="w-3 h-3 text-purple-300" />
-                  Arriendo 24/7
-                </>
-              )}
+              <Calendar className="w-3 h-3 text-purple-300" />
+              Arriendo
             </span>
           )}
           {isAvailable && (
@@ -648,8 +632,7 @@ const SpotCard: React.FC<SpotCardProps> = ({
           <div className="space-y-2">
             <div className="bg-zinc-900 border-2 border-purple-700/60 px-2 py-1 rounded-md text-purple-200 font-mono font-bold tracking-wider text-xs flex items-center justify-between shadow-inner">
               <span>{spot.monthlyContract.plate}</span>
-              <span className="text-[10px] font-sans uppercase bg-purple-950 px-1.5 py-0.5 rounded text-purple-300 flex items-center gap-1">
-                {spot.monthlyContract.type === 'nocturno' ? <Moon className="w-2.5 h-2.5 text-purple-300" /> : spot.monthlyContract.type === 'diurno' ? <Sun className="w-2.5 h-2.5 text-amber-300" /> : null}
+              <span className="text-[10px] font-sans uppercase bg-purple-950 px-1 rounded text-purple-300">
                 {spot.monthlyContract.type.replace('_', ' ')}
               </span>
             </div>
@@ -668,16 +651,6 @@ const SpotCard: React.FC<SpotCardProps> = ({
 
             <div className="bg-purple-950/40 border border-purple-900/60 rounded-lg p-2 text-[10px] text-purple-300">
               <div className="flex justify-between">
-                <span>Horario:</span>
-                <span className="font-bold text-purple-200">
-                  {spot.monthlyContract.type === 'nocturno'
-                    ? (settings.nightContractSchedule || '20:00 a 08:00 hrs')
-                    : spot.monthlyContract.type === 'diurno'
-                    ? (settings.dayContractSchedule || '08:00 a 20:00 hrs')
-                    : '24 Horas'}
-                </span>
-              </div>
-              <div className="flex justify-between mt-0.5">
                 <span>Abono Mensual:</span>
                 <span className="font-bold text-purple-200 font-mono">
                   {formatCLP(spot.monthlyContract.monthlyFee)}/mes
@@ -692,9 +665,9 @@ const SpotCard: React.FC<SpotCardProps> = ({
 
         {/* CASE 3: AVAILABLE SPOT */}
         {isAvailable && (
-          <div className="py-2.5 flex flex-col items-center justify-center text-center space-y-2.5">
-            <div className="w-11 h-11 rounded-full bg-emerald-950/60 border border-emerald-800/60 flex items-center justify-center text-emerald-400 shadow-inner">
-              <CheckCircle2 className="w-5 h-5" />
+          <div className="py-3 flex flex-col items-center justify-center text-center space-y-3">
+            <div className="w-12 h-12 rounded-full bg-emerald-950/60 border border-emerald-800/60 flex items-center justify-center text-emerald-400 shadow-inner">
+              <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
               <span className="text-xs font-semibold text-zinc-200 block">
@@ -704,30 +677,6 @@ const SpotCard: React.FC<SpotCardProps> = ({
                 Listo para ingreso inmediato
               </span>
             </div>
-
-            {/* Scheduled Contract Info Banner if assigned to an off-schedule contract (e.g. Night Rental during daytime) */}
-            {spot.monthlyContract && (
-              <div className="bg-indigo-950/40 border border-indigo-800/50 rounded-lg px-2.5 py-1.5 w-full text-center space-y-0.5">
-                <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-indigo-300">
-                  {spot.monthlyContract.type === 'nocturno' ? (
-                    <>
-                      <Moon className="w-3 h-3 text-indigo-400" />
-                      <span>Arriendo Nocturno ({settings.nightContractSchedule || '20:00 a 08:00 hrs'})</span>
-                    </>
-                  ) : spot.monthlyContract.type === 'diurno' ? (
-                    <>
-                      <Sun className="w-3 h-3 text-amber-400" />
-                      <span>Arriendo Diurno ({settings.dayContractSchedule || '08:00 a 20:00 hrs'})</span>
-                    </>
-                  ) : (
-                    <span>Arriendo Asignado</span>
-                  )}
-                </div>
-                <div className="text-[9px] text-zinc-400">
-                  Disponible por hora ahora • Patente: <span className="font-mono text-zinc-300 font-bold">{spot.monthlyContract.plate}</span>
-                </div>
-              </div>
-            )}
 
             {/* Vacancy lost opportunity meter */}
             {spot.accumulatedEmptyMinutesToday > 0 && (
