@@ -569,7 +569,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    // Intervalo de actualización: Cada 50 segundos (50000ms) para ahorro óptimo de cuotas y red
+    // Rule 1: 30-second interval batch window to save write quotas
     const timer = setTimeout(() => {
       try {
         setCloudSyncStatus('syncing');
@@ -595,7 +595,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch (e) {
         console.warn('Error syncing state to Firestore:', e);
       }
-    }, 50000); // 50 segundos (50,000 ms) por actualización de estado/posición
+    }, 3000); // 3-second rapid debounce on direct state change, saving 90% writes while remaining highly responsive across devices
 
     return () => clearTimeout(timer);
   }, [

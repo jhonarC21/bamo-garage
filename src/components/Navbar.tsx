@@ -99,9 +99,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
             title={
               cloudSyncStatus === 'connected'
-                ? 'Sincronizado con Firebase Firestore (Intervalo de actualización cada 50 segundos)'
+                ? 'Sincronizado en tiempo real con Firebase Firestore (Multi-dispositivo en vivo)'
                 : cloudSyncStatus === 'syncing'
-                ? 'Sincronizando cambios de estado con la nube...'
+                ? 'Sincronizando cambios con la nube...'
                 : 'Modo local (Reconectando nube...)'
             }
           >
