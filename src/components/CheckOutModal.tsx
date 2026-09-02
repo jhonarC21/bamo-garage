@@ -46,7 +46,7 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
     removeAccessoryItemFromSpot,
   } = useParking();
 
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta_debito');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo');
   const [posProvider, setPosProvider] = useState<POSTerminalProvider>('tuu');
   const [authorizationCode, setAuthorizationCode] = useState<string>('');
   const [siiBoletaNumber, setSiiBoletaNumber] = useState<string>('');
@@ -71,7 +71,7 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
         } else if (s.customerPaymentPreference === 'debito') {
           setPaymentMethod('tarjeta_debito');
         } else {
-          setPaymentMethod('tarjeta_debito');
+          setPaymentMethod('efectivo');
         }
       }
       setAuthorizationCode('');
@@ -442,9 +442,9 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                       { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
                     ]
                   : [
+                      { id: 'efectivo', label: 'Efectivo', icon: Banknote },
                       { id: 'tarjeta_debito', label: 'Débito', icon: CreditCard },
                       { id: 'tarjeta_credito', label: 'Crédito', icon: CreditCard },
-                      { id: 'efectivo', label: 'Efectivo', icon: Banknote },
                       { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
                     ]
                 ).map((m) => {

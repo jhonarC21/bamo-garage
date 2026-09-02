@@ -81,7 +81,7 @@ export const AccessoriesShop: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [chargeToSpot, setChargeToSpot] = useState<string>('');
   const [clientName, setClientName] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta_debito');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo');
   const [posProvider, setPosProvider] = useState<POSTerminalProvider>('tuu');
   const [authorizationCode, setAuthorizationCode] = useState<string>('');
   const [saleSuccess, setSaleSuccess] = useState(false);
@@ -701,9 +701,9 @@ export const AccessoriesShop: React.FC = () => {
                     </label>
                     <div className="grid grid-cols-2 gap-1.5">
                       {[
+                        { id: 'efectivo', label: 'Efectivo' },
                         { id: 'tarjeta_debito', label: 'Débito' },
                         { id: 'tarjeta_credito', label: 'Crédito' },
-                        { id: 'efectivo', label: 'Efectivo' },
                         { id: 'transferencia', label: 'Transfer.' },
                       ].map((m) => (
                         <button
@@ -712,7 +712,9 @@ export const AccessoriesShop: React.FC = () => {
                           onClick={() => setPaymentMethod(m.id as PaymentMethod)}
                           className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition ${
                             paymentMethod === m.id
-                              ? 'bg-amber-600 border-amber-400 text-white font-bold shadow'
+                              ? m.id === 'efectivo'
+                                ? 'bg-emerald-600 border-emerald-400 text-white font-bold shadow'
+                                : 'bg-amber-600 border-amber-400 text-white font-bold shadow'
                               : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-850'
                           }`}
                         >
