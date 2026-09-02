@@ -65,14 +65,12 @@ export const BusinessAccounting: React.FC = () => {
     (acc, s) => acc + (s.washOrders ? s.washOrders.reduce((wAcc, w) => wAcc + (w.price || 0), 0) : 0),
     0
   );
-  const directShopGross = filteredSales
-    .filter((s) => !s.spotNumber && !s.ticketId)
-    .reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0);
-  const sessionShopGross = filteredSessions.reduce(
-    (acc, s) => acc + (s.accessorySales ? s.accessorySales.reduce((aAcc, a) => aAcc + (a.total || 0), 0) : 0),
-    0
-  );
-  const shopGross = directShopGross + sessionShopGross;
+  const shopGross =
+    filteredSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0) +
+    filteredSessions.reduce(
+      (acc, s) => acc + (s.accessorySales ? s.accessorySales.reduce((aAcc, a) => aAcc + (a.total || 0), 0) : 0),
+      0
+    );
   const contractsGross = filteredContracts.reduce((acc, c) => acc + (c.monthlyFee || 0), 0);
   const valetGross = filteredSessions.reduce(
     (acc, s) => acc + (s.hasValetParking ? (s.valetParkingFee || 0) : 0),

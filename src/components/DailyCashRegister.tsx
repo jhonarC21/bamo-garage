@@ -29,7 +29,6 @@ import {
   Smartphone,
   Banknote,
   Clock,
-  ShoppingBag,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
@@ -63,7 +62,6 @@ export const DailyCashRegister: React.FC = () => {
     vipPaymentRecords,
     payVIPAccumulatedBalance,
     reclassifySessionPaymentMethod,
-    reclassifyAccessorySalePaymentMethod,
   } = useParking();
 
   // Active view tab inside Cash Register
@@ -73,7 +71,6 @@ export const DailyCashRegister: React.FC = () => {
 
   const [reclassifyNotification, setReclassifyNotification] = useState<string | null>(null);
   const [editingSessionPayment, setEditingSessionPayment] = useState<string | null>(null);
-  const [editingAccessoryPayment, setEditingAccessoryPayment] = useState<string | null>(null);
 
   // Open Cash Register modal
   const [isOpenCashModalOpen, setIsOpenCashModalOpen] = useState(false);
@@ -121,14 +118,9 @@ export const DailyCashRegister: React.FC = () => {
   const todayParkingSessions = completedSessions.filter((s) =>
     (s.exitTime || s.entryTime || '').startsWith(todayStr)
   );
-
-  // Standalone Direct Shop Sales (Counter sales made directly in the shop, not charged to a parking spot or ticket)
-  const todayDirectAccessorySales = accessorySales.filter((s) => {
-    const isToday = (s.soldAt || s.date || '').startsWith(todayStr);
-    const isDirect = !s.spotNumber && !s.ticketId;
-    return isToday && isDirect;
-  });
-
+  const todayAccessorySales = accessorySales.filter((s) =>
+    (s.soldAt || s.date || '').startsWith(todayStr)
+  );
   const todayContracts = monthlyContracts.filter((c) =>
     (c.createdAt || c.startDate || '').startsWith(todayStr)
   );
@@ -144,7 +136,7 @@ export const DailyCashRegister: React.FC = () => {
     (s) => s.paymentMethod !== 'cuenta_corriente_vip'
   );
 
-  // 3. Income totals strictly from actually collected funds (No double counting of accessories)
+  // 3. Income totals strictly from actually collected funds
   const totalPaidParking = todayPaidParkingSessions.reduce(
     (acc, s) => acc + (s.parkingCost || 0),
     0
@@ -154,19 +146,14 @@ export const DailyCashRegister: React.FC = () => {
       acc + (s.washOrders ? s.washOrders.reduce((wAcc, w) => wAcc + (w.price || 0), 0) : 0),
     0
   );
-
-  const totalDirectShop = todayDirectAccessorySales.reduce(
-    (acc, s) => acc + (s.totalAmount ?? s.total ?? 0),
-    0
-  );
-  const totalParkingSessionAccessories = todayPaidParkingSessions.reduce(
-    (acc, s) =>
-      acc +
-      (s.accessorySales ? s.accessorySales.reduce((aAcc, a) => aAcc + (a.total || 0), 0) : 0),
-    0
-  );
-  const totalPaidShop = totalDirectShop + totalParkingSessionAccessories;
-
+  const totalPaidShop =
+    todayAccessorySales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0) +
+    todayPaidParkingSessions.reduce(
+      (acc, s) =>
+        acc +
+        (s.accessorySales ? s.accessorySales.reduce((aAcc, a) => aAcc + (a.total || 0), 0) : 0),
+      0
+    );
   const totalPaidContracts = todayContracts.reduce((acc, c) => acc + (c.monthlyFee || 0), 0);
   const totalPaidValet = todayPaidParkingSessions.reduce(
     (acc, s) => acc + (s.hasValetParking ? s.valetParkingFee || 0 : 0),
@@ -199,7 +186,7 @@ export const DailyCashRegister: React.FC = () => {
     0
   );
 
-  // Incomes by payment method (Strictly collected revenues; NO DUPLICATION!)
+  // Incomes by payment method (Strictly collected revenues; cuenta_corriente_vip kept only for ledger display)
   const incomeByMethod: Record<PaymentMethod, number> = {
     efectivo: 0,
     tarjeta_debito: 0,
@@ -208,31 +195,24 @@ export const DailyCashRegister: React.FC = () => {
     cuenta_corriente_vip: totalVipReceivablesToday,
   };
 
-  // 1. Add paid parking sessions (each session's totalAmount already includes parking, wash, attached accessories, and valet)
   todayPaidParkingSessions.forEach((s) => {
     if (s.paymentMethod && s.paymentMethod !== 'cuenta_corriente_vip') {
       incomeByMethod[s.paymentMethod] =
         (incomeByMethod[s.paymentMethod] || 0) + (s.totalAmount || 0);
     }
   });
-
-  // 2. Add direct accessory sales (ONLY standalone direct counter sales; attached accessories are already part of session.totalAmount)
-  todayDirectAccessorySales.forEach((s) => {
+  todayAccessorySales.forEach((s) => {
     if (s.paymentMethod && s.paymentMethod !== 'cuenta_corriente_vip') {
       incomeByMethod[s.paymentMethod] =
         (incomeByMethod[s.paymentMethod] || 0) + (s.totalAmount ?? s.total ?? 0);
     }
   });
-
-  // 3. Add contracts
   todayContracts.forEach((c) => {
     if (c.paymentMethod && c.paymentMethod !== 'cuenta_corriente_vip') {
       incomeByMethod[c.paymentMethod] =
         (incomeByMethod[c.paymentMethod] || 0) + (c.monthlyFee || 0);
     }
   });
-
-  // 4. Add VIP Abonos
   todayVipPayments.forEach((p) => {
     if (p.paymentMethod && p.paymentMethod !== 'cuenta_corriente_vip') {
       incomeByMethod[p.paymentMethod] = (incomeByMethod[p.paymentMethod] || 0) + (p.amount || 0);
@@ -249,10 +229,10 @@ export const DailyCashRegister: React.FC = () => {
     .filter((e) => e.paymentSource === 'cuenta_bancaria')
     .reduce((acc, e) => acc + (e.amount || 0), 0);
 
-  // POS Fee and Net calculations (Only sessions + standalone direct sales)
+  // POS Fee and Net calculations
   const totalPosFeesToday =
     todayPaidParkingSessions.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0) +
-    todayDirectAccessorySales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0);
+    todayAccessorySales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0);
 
   const totalCardGross =
     (incomeByMethod.tarjeta_debito || 0) + (incomeByMethod.tarjeta_credito || 0);
@@ -260,7 +240,7 @@ export const DailyCashRegister: React.FC = () => {
 
   // Breakdown by POS Terminal Operator
   const tuuSessions = todayPaidParkingSessions.filter((s) => s.posProvider === 'tuu');
-  const tuuSales = todayDirectAccessorySales.filter((s) => s.posProvider === 'tuu');
+  const tuuSales = todayAccessorySales.filter((s) => s.posProvider === 'tuu');
   const tuuGross =
     tuuSessions.reduce((acc, s) => acc + (s.totalAmount || 0), 0) +
     tuuSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0);
@@ -269,7 +249,7 @@ export const DailyCashRegister: React.FC = () => {
     tuuSales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0);
 
   const mpSessions = todayPaidParkingSessions.filter((s) => s.posProvider === 'mercadopago');
-  const mpSales = todayDirectAccessorySales.filter((s) => s.posProvider === 'mercadopago');
+  const mpSales = todayAccessorySales.filter((s) => s.posProvider === 'mercadopago');
   const mpGross =
     mpSessions.reduce((acc, s) => acc + (s.totalAmount || 0), 0) +
     mpSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0);
@@ -597,7 +577,7 @@ export const DailyCashRegister: React.FC = () => {
           }`}
         >
           <Receipt className="w-4 h-4" />
-          Ingresos Cobrados ({todayPaidParkingSessions.length + todayDirectAccessorySales.length + todayVipPayments.length})
+          Ingresos Cobrados ({todayPaidParkingSessions.length + todayAccessorySales.length + todayVipPayments.length})
         </button>
 
         <button
@@ -866,13 +846,13 @@ export const DailyCashRegister: React.FC = () => {
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
               <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-400" />
-                Ventas & Pagos Recaudados en Caja Hoy ({todayPaidParkingSessions.length + todayDirectAccessorySales.length + todayVipPayments.length})
+                Ventas & Pagos Recaudados en Caja Hoy ({todayPaidParkingSessions.length + todayVipPayments.length})
               </h3>
             </div>
 
-            {todayPaidParkingSessions.length === 0 && todayDirectAccessorySales.length === 0 && todayVipPayments.length === 0 ? (
+            {todayPaidParkingSessions.length === 0 && todayVipPayments.length === 0 ? (
               <div className="p-8 text-center text-zinc-500 text-xs">
-                No hay pagos recaudados hoy aún. Al realizar cobros de salidas, ventas de tienda o abonos de clientes VIP se listarán aquí en tiempo real.
+                No hay pagos recaudados hoy aún. Al realizar cobros de salidas o abonos de clientes VIP se listarán aquí en tiempo real.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -889,89 +869,6 @@ export const DailyCashRegister: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
-                    {/* Standalone Direct Accessory Sales (Venta directa de tienda en mostrador) */}
-                    {todayDirectAccessorySales.map((sale) => (
-                      <tr key={sale.id} className="bg-amber-950/20 hover:bg-amber-950/40">
-                        <td className="p-3 font-mono text-amber-400">{formatTimeOnly(sale.soldAt || sale.date)}</td>
-                        <td className="p-3 font-mono font-bold text-amber-300">
-                          <span className="bg-amber-900/60 text-amber-200 px-2 py-0.5 rounded border border-amber-700/60 mr-2 text-[10px] inline-flex items-center gap-1">
-                            <ShoppingBag className="w-3 h-3 text-amber-400" />
-                            VENTA TIENDA
-                          </span>
-                          <span className="text-zinc-400 text-[11px]">#{sale.id.slice(-6)}</span>
-                        </td>
-                        <td className="p-3 text-zinc-200">
-                          {sale.clientName || 'Cliente Mostrador'}
-                        </td>
-                        <td className="p-3 text-zinc-300 text-[11px]">
-                          <div className="space-y-0.5">
-                            {sale.items.map((item, idx) => (
-                              <div key={idx} className="flex justify-between text-zinc-300">
-                                <span>{item.quantity}x {item.productName}</span>
-                                <span className="font-mono text-zinc-400">{formatCLP(item.total)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex flex-col gap-1">
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase w-fit ${
-                                sale.paymentMethod === 'efectivo'
-                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                                  : sale.paymentMethod === 'tarjeta_debito'
-                                  ? 'bg-cyan-950 text-cyan-300 border border-cyan-800'
-                                  : sale.paymentMethod === 'tarjeta_credito'
-                                  ? 'bg-indigo-950 text-indigo-300 border border-indigo-800'
-                                  : 'bg-violet-950 text-violet-300 border border-violet-800'
-                              }`}
-                            >
-                              {sale.paymentMethod.replace('_', ' ')}
-                            </span>
-                            {sale.posProvider && (
-                              <span className="text-[9.5px] text-zinc-400 font-mono">
-                                POS {sale.posProvider.toUpperCase()}{sale.authorizationCode ? ` • Aut: ${sale.authorizationCode}` : ''}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-3 text-right font-mono">
-                          <div className="font-bold text-emerald-400 text-sm">
-                            +{formatCLP(sale.totalAmount ?? sale.total)}
-                          </div>
-                          {sale.posFeeAmount !== undefined && sale.posFeeAmount > 0 && (
-                            <div className="text-[10px] text-rose-400">
-                              Comisión ({sale.posFeePercent}%): -{formatCLP(sale.posFeeAmount)}
-                            </div>
-                          )}
-                          {sale.netAmountReceived !== undefined && (
-                            <div className="text-[11px] font-bold text-emerald-400">
-                              Neto: {formatCLP(sale.netAmountReceived)}
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3 text-center">
-                          <div className="flex flex-col items-center gap-1.5">
-                            <select
-                              value={sale.paymentMethod}
-                              onChange={(e) => {
-                                const newMethod = e.target.value as PaymentMethod;
-                                const res = reclassifyAccessorySalePaymentMethod(sale.id, newMethod);
-                                setReclassifyNotification(res.message);
-                                setTimeout(() => setReclassifyNotification(null), 5000);
-                              }}
-                              className="bg-zinc-900 border border-amber-600/50 text-amber-200 hover:text-white text-[10px] rounded px-1.5 py-0.5 focus:outline-none focus:border-amber-500"
-                              title="Cambiar medio de pago si fue cobrado en efectivo u otro medio"
-                            >
-                              <option value="efectivo">Efectivo</option>
-                              <option value="tarjeta_debito">Débito</option>
-                              <option value="tarjeta_credito">Crédito</option>
-                              <option value="transferencia">Transferencia</option>
-                            </select>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
                     {/* VIP Abonos Collected Today */}
                     {todayVipPayments.map((vipPay) => (
                       <tr key={vipPay.id} className="bg-yellow-950/20 hover:bg-yellow-950/40">

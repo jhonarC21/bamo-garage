@@ -18,7 +18,6 @@ import {
   Key,
   Crown,
   Info,
-  Trash2,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, formatCLP, formatDateTime, calculatePOSFee } from '../utils/pricing';
@@ -36,17 +35,9 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
   onClose,
   spotNumber,
 }) => {
-  const {
-    getSpotSession,
-    checkOutVehicle,
-    currentTime,
-    settings,
-    getVehicleByPlate,
-    removeWashOrder,
-    removeAccessoryItemFromSpot,
-  } = useParking();
+  const { getSpotSession, checkOutVehicle, currentTime, settings, getVehicleByPlate } = useParking();
 
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta_debito');
   const [posProvider, setPosProvider] = useState<POSTerminalProvider>('tuu');
   const [authorizationCode, setAuthorizationCode] = useState<string>('');
   const [siiBoletaNumber, setSiiBoletaNumber] = useState<string>('');
@@ -71,7 +62,7 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
         } else if (s.customerPaymentPreference === 'debito') {
           setPaymentMethod('tarjeta_debito');
         } else {
-          setPaymentMethod('efectivo');
+          setPaymentMethod('tarjeta_debito');
         }
       }
       setAuthorizationCode('');
@@ -300,21 +291,11 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                     Servicios de Lavado de Autos:
                   </div>
                   {session.washOrders.map((w, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-zinc-300 pl-4 text-[11px] group">
+                    <div key={idx} className="flex justify-between text-zinc-300 pl-4 text-[11px]">
                       <span>{w.serviceName}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-purple-300">
-                          {formatCLP(w.price)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeWashOrder(w.id, spotNumber || undefined)}
-                          className="text-zinc-500 hover:text-rose-400 p-0.5 rounded transition"
-                          title="Eliminar este servicio por error"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
+                      <span className="font-mono font-semibold text-purple-300">
+                        {formatCLP(w.price)}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -328,25 +309,13 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                     Accesorios Vehiculares:
                   </div>
                   {session.accessorySales.map((a, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-zinc-300 pl-4 text-[11px] group">
+                    <div key={idx} className="flex justify-between text-zinc-300 pl-4 text-[11px]">
                       <span>
                         {a.quantity}x {a.productName}
                       </span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-amber-300">
-                          {formatCLP(a.total)}
-                        </span>
-                        {spotNumber && (
-                          <button
-                            type="button"
-                            onClick={() => removeAccessoryItemFromSpot(spotNumber, a.productId)}
-                            className="text-zinc-500 hover:text-rose-400 p-0.5 rounded transition"
-                            title="Eliminar este producto por error (restituye stock)"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
+                      <span className="font-mono font-semibold text-amber-300">
+                        {formatCLP(a.total)}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -442,9 +411,9 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
                       { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
                     ]
                   : [
-                      { id: 'efectivo', label: 'Efectivo', icon: Banknote },
                       { id: 'tarjeta_debito', label: 'Débito', icon: CreditCard },
                       { id: 'tarjeta_credito', label: 'Crédito', icon: CreditCard },
+                      { id: 'efectivo', label: 'Efectivo', icon: Banknote },
                       { id: 'transferencia', label: 'Transfer.', icon: Smartphone },
                     ]
                 ).map((m) => {

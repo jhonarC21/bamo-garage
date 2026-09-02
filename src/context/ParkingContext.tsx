@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { doc, onSnapshot, setDoc, deleteDoc, collection } from 'firebase/firestore';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
   ParkingSpot,
@@ -228,9 +228,6 @@ interface ParkingContextType {
     transferVoucherNumber?: string
   ) => void;
   requestCustomerAccessories: (spotNumber: number, items: AccessorySaleItem[], notes?: string) => boolean;
-  removeWashOrder: (orderId: string, spotNumber?: number) => { success: boolean; message: string };
-  removeAccessoryItemFromSpot: (spotNumber: number, productId: string, removeQuantity?: number) => { success: boolean; message: string };
-  cancelAccessorySale: (saleId: string) => { success: boolean; message: string };
   createMonthlyContract: (contract: Omit<MonthlyContract, 'id' | 'contractNumber'>) => MonthlyContract;
   updateMonthlyContract: (id: string, updates: Partial<MonthlyContract>) => void;
   deleteMonthlyContract: (contractId: string, adminPinOrBypass?: string) => { success: boolean; message: string };
@@ -238,13 +235,6 @@ interface ParkingContextType {
   getVehicleByPlate: (plate: string) => Vehicle | undefined;
   reclassifySessionPaymentMethod: (
     sessionId: string,
-    newPaymentMethod: PaymentMethod,
-    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
-    siiBoletaNumber?: string,
-    transferVoucherNumber?: string
-  ) => { success: boolean; message: string };
-  reclassifyAccessorySalePaymentMethod: (
-    saleId: string,
     newPaymentMethod: PaymentMethod,
     posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
     siiBoletaNumber?: string,
@@ -444,6 +434,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('connected');
   const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(null);
   const isIncomingCloudUpdate = useRef<boolean>(false);
+  const isInitialCloudLoadComplete = useRef<boolean>(false);
+  const lastSyncedPayloadRef = useRef<string>('');
+
   const [simulatedMinutesAdded, setSimulatedMinutesAdded] = useState<number>(0);
   const [baseCurrentTime, setBaseCurrentTime] = useState<Date>(new Date());
 
@@ -457,237 +450,174 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const currentTime = new Date(baseCurrentTime.getTime() + simulatedMinutesAdded * 60000);
 
-  // --- Hybrid Targeted Cloud Synchronization (Local-First Architecture) ---
-  // Sync essential active ticket data to Firestore 'active_tickets' collection for customer QR portal
-  const syncActiveTicketToFirestore = useCallback(
-    async (session: ParkingSession | null | undefined, customSettings?: ParkingSettings) => {
-      if (!session || !session.ticketNumber) return;
-      try {
-        const activeSettings = customSettings || settings;
-        const ticketDocRef = doc(db, 'active_tickets', session.ticketNumber);
-        await setDoc(
-          ticketDocRef,
-          sanitizeForFirestore({
-            id: session.id,
-            ticketNumber: session.ticketNumber,
-            spotNumber: session.spotNumber,
-            plate: session.plate,
-            brand: session.brand || '',
-            model: session.model || '',
-            color: session.color || '',
-            year: session.year || null,
-            vehicleType: session.vehicleType || 'auto',
-            clientName: session.clientName || null,
-            clientPhone: session.clientPhone || null,
-            clientEmail: session.clientEmail || null,
-            entryTime: session.entryTime,
-            isManualEntryTime: !!session.isManualEntryTime,
-            status: session.status || 'active',
-            hasValetParking: !!session.hasValetParking,
-            valetParkingFee: session.valetParkingFee || 0,
-            valetDriver: session.valetDriver || null,
-            valetNotes: session.valetNotes || null,
-            parkingCost: session.parkingCost || 0,
-            totalServicesCost: session.totalServicesCost || 0,
-            totalAmount: session.totalAmount || 0,
-            washOrders: session.washOrders || [],
-            accessorySales: session.accessorySales || [],
-            customerPaymentPreference: session.customerPaymentPreference || null,
-            customerPaymentPreferenceTime: session.customerPaymentPreferenceTime || null,
-            rates: {
-              base30MinPrice: activeSettings.base30MinPrice,
-              extra10MinPrice: activeSettings.extra10MinPrice,
-              valetParkingPrice: activeSettings.valetParkingPrice ?? 2000,
-              parkingName: activeSettings.parkingName,
-              address: activeSettings.address,
-              phone: activeSettings.phone,
-              rut: activeSettings.rut,
-              siiOffice: activeSettings.siiOffice,
-            },
-            lastUpdatedAt: new Date().toISOString(),
-          }),
-          { merge: true }
-        );
-        setIsCloudSynced(true);
-        setCloudSyncStatus('connected');
-        setLastCloudSyncTime(new Date());
-      } catch (err) {
-        console.warn('Error syncing active ticket to Firestore:', err);
-      }
-    },
-    [settings]
-  );
-
-  // Complete or clean up ticket from active tickets collection
-  const completeTicketInFirestore = useCallback(
-    async (
-      ticketNumber: string,
-      exitData?: { exitTime: string; totalAmount: number; paymentMethod: string }
-    ) => {
-      if (!ticketNumber) return;
-      try {
-        const ticketDocRef = doc(db, 'active_tickets', ticketNumber);
-        if (exitData) {
-          await setDoc(
-            ticketDocRef,
-            sanitizeForFirestore({
-              status: 'completed',
-              exitTime: exitData.exitTime,
-              totalAmount: exitData.totalAmount,
-              paymentMethod: exitData.paymentMethod,
-              lastUpdatedAt: new Date().toISOString(),
-            }),
-            { merge: true }
-          );
-        } else {
-          await deleteDoc(ticketDocRef);
-        }
-        setIsCloudSynced(true);
-        setCloudSyncStatus('connected');
-        setLastCloudSyncTime(new Date());
-      } catch (err) {
-        console.warn('Error completing/deleting ticket in Firestore:', err);
-      }
-    },
-    []
-  );
-
-  // Sync public catalog (wash services & accessory products) for QR portal clients
-  const syncPublicCatalogToFirestore = useCallback(
-    async (
-      services?: WashService[],
-      products?: AccessoryProduct[],
-      activeSettings?: ParkingSettings
-    ) => {
-      try {
-        const catalogDocRef = doc(db, 'garage_catalog', 'public_info');
-        const curServices = services || washServices;
-        const curProducts = products || accessoryProducts;
-        const curSettings = activeSettings || settings;
-
-        await setDoc(
-          catalogDocRef,
-          sanitizeForFirestore({
-            washServices: (curServices || []).filter((s) => s.availableInCustomerPortal !== false && s.enabledInClientPortal !== false),
-            accessoryProducts: (curProducts || []).filter((p) => p.stock > 0),
-            settings: {
-              parkingName: curSettings.parkingName,
-              address: curSettings.address,
-              phone: curSettings.phone,
-              rut: curSettings.rut,
-              base30MinPrice: curSettings.base30MinPrice,
-              extra10MinPrice: curSettings.extra10MinPrice,
-              valetParkingPrice: curSettings.valetParkingPrice ?? 2000,
-            },
-            lastUpdatedAt: new Date().toISOString(),
-          }),
-          { merge: true }
-        );
-        setIsCloudSynced(true);
-        setCloudSyncStatus('connected');
-        setLastCloudSyncTime(new Date());
-      } catch (err) {
-        console.warn('Error syncing public catalog to Firestore:', err);
-      }
-    },
-    [washServices, accessoryProducts, settings]
-  );
-
-  // Listen in real-time ONLY to active_tickets so admin automatically receives customer QR requests
+  // Real-time listener: Multi-device instant synchronization via Firebase Firestore
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
     try {
-      const ticketsColRef = collection(db, 'active_tickets');
-      unsubscribe = onSnapshot(
-        ticketsColRef,
+      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+      const unsubscribe = onSnapshot(
+        liveDocRef,
         (snapshot) => {
-          setIsCloudSynced(true);
-          setCloudSyncStatus('connected');
-          setLastCloudSyncTime(new Date());
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data) {
+              isIncomingCloudUpdate.current = true;
+              if (Array.isArray(data.spots)) setSpots(data.spots);
+              if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
+              if (Array.isArray(data.washServices)) setWashServices(data.washServices);
+              if (Array.isArray(data.washOrders)) setWashOrders(data.washOrders);
+              if (Array.isArray(data.accessoryProducts)) setAccessoryProducts(data.accessoryProducts);
+              if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
+              if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
+              if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
+              if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
+              if (Array.isArray(data.vehicleAuditLogs)) setVehicleAuditLogs(data.vehicleAuditLogs);
+              if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+              if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
+              if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+              if (typeof data.openingCash === 'number') setOpeningCash(data.openingCash);
+              if (Array.isArray(data.cashRegisterClosures)) setCashRegisterClosures(data.cashRegisterClosures);
+              if (Array.isArray(data.employees)) setEmployees(data.employees);
+              if (Array.isArray(data.payrollSettlements)) setPayrollSettlements(data.payrollSettlements);
 
-          snapshot.docChanges().forEach((change) => {
-            if (change.type === 'modified' || change.type === 'added') {
-              const ticketData = change.doc.data();
-              if (ticketData && ticketData.status === 'active' && ticketData.spotNumber) {
-                setSpots((prevSpots) =>
-                  prevSpots.map((spot) => {
-                    if (
-                      spot.number === ticketData.spotNumber &&
-                      spot.currentSession &&
-                      spot.currentSession.ticketNumber === ticketData.ticketNumber
-                    ) {
-                      const localSession = spot.currentSession;
-                      const remoteWash = Array.isArray(ticketData.washOrders)
-                        ? ticketData.washOrders
-                        : localSession.washOrders;
-                      const remoteAcc = Array.isArray(ticketData.accessorySales)
-                        ? ticketData.accessorySales
-                        : localSession.accessorySales;
-                      const remotePref =
-                        ticketData.customerPaymentPreference || localSession.customerPaymentPreference;
+              setIsCloudSynced(true);
+              setCloudSyncStatus('connected');
+              setLastCloudSyncTime(new Date());
 
-                      const hasWashDiff =
-                        JSON.stringify(remoteWash) !== JSON.stringify(localSession.washOrders);
-                      const hasAccDiff =
-                        JSON.stringify(remoteAcc) !== JSON.stringify(localSession.accessorySales);
-                      const hasPrefDiff = remotePref !== localSession.customerPaymentPreference;
-
-                      if (hasWashDiff || hasAccDiff || hasPrefDiff) {
-                        const washCost = (remoteWash || []).reduce(
-                          (sum: number, w: any) => sum + (w.price || 0),
-                          0
-                        );
-                        const accCost = (remoteAcc || []).reduce(
-                          (sum: number, a: any) => sum + (a.total || 0),
-                          0
-                        );
-                        const valetCost = localSession.hasValetParking
-                          ? localSession.valetParkingFee || 0
-                          : 0;
-                        const totalServices = washCost + accCost + valetCost;
-
-                        return {
-                          ...spot,
-                          currentSession: {
-                            ...localSession,
-                            washOrders: remoteWash,
-                            accessorySales: remoteAcc,
-                            customerPaymentPreference: remotePref,
-                            customerPaymentPreferenceTime:
-                              ticketData.customerPaymentPreferenceTime ||
-                              localSession.customerPaymentPreferenceTime,
-                            totalServicesCost: totalServices,
-                            totalAmount: localSession.parkingCost + totalServices,
-                          },
-                        };
-                      }
-                    }
-                    return spot;
-                  })
-                );
-              }
+              setTimeout(() => {
+                isIncomingCloudUpdate.current = false;
+                isInitialCloudLoadComplete.current = true;
+              }, 300);
             }
-          });
+          } else {
+            // First-time database bootstrapping in Firestore
+            setDoc(
+              liveDocRef,
+              sanitizeForFirestore({
+                spots: INITIAL_SPOTS,
+                vehicles: INITIAL_VEHICLES,
+                washServices: INITIAL_WASH_SERVICES,
+                washOrders: [],
+                accessoryProducts: INITIAL_ACCESSORIES,
+                accessorySales: [],
+                monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
+                completedSessions: INITIAL_COMPLETED_SESSIONS,
+                vipPaymentRecords: [],
+                vehicleAuditLogs: [],
+                settings: DEFAULT_SETTINGS,
+                users: INITIAL_USERS,
+                expenses: INITIAL_EXPENSES,
+                openingCash: 50000,
+                cashRegisterClosures: [],
+                employees: INITIAL_EMPLOYEES,
+                payrollSettlements: [],
+                lastUpdatedAt: new Date().toISOString(),
+              })
+            )
+              .then(() => {
+                setIsCloudSynced(true);
+                setCloudSyncStatus('connected');
+                setLastCloudSyncTime(new Date());
+                isInitialCloudLoadComplete.current = true;
+              })
+              .catch((err) => {
+                console.warn('Could not initialize cloud document:', err);
+              });
+          }
         },
         (error) => {
-          console.warn('Firestore active_tickets listener note:', error);
+          console.warn('Firestore live sync error:', error);
           setCloudSyncStatus('offline');
         }
       );
+
+      return () => unsubscribe();
     } catch (err) {
-      console.warn('Error setting up active_tickets listener:', err);
+      console.warn('Error setting up Firestore listener:', err);
       setCloudSyncStatus('offline');
     }
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
   }, []);
 
-  // Sync public catalog once on startup or when services/products change
+  // Optimized Push local changes to Firestore: Only write on real state changes (Dirty check) & 30s batch window
   useEffect(() => {
-    syncPublicCatalogToFirestore(washServices, accessoryProducts, settings);
-  }, [washServices, accessoryProducts, settings, syncPublicCatalogToFirestore]);
+    if (isIncomingCloudUpdate.current) return;
+    if (!isInitialCloudLoadComplete.current) return;
+
+    // Construct serialized snapshot of meaningful business state (ignoring clock ticks)
+    const currentPayloadObj = {
+      spots,
+      vehicles,
+      washServices,
+      washOrders,
+      accessoryProducts,
+      accessorySales,
+      monthlyContracts,
+      completedSessions,
+      vipPaymentRecords,
+      vehicleAuditLogs,
+      settings,
+      users,
+      expenses,
+      openingCash,
+      cashRegisterClosures,
+      employees,
+      payrollSettlements,
+    };
+
+    const serializedPayload = JSON.stringify(currentPayloadObj);
+
+    // Rule 2: "Solo si hay cambios reales" - Don't write if data is identical to last sync
+    if (serializedPayload === lastSyncedPayloadRef.current) {
+      return;
+    }
+
+    // Intervalo de actualización: Cada 50 segundos (50000ms) para ahorro óptimo de cuotas y red
+    const timer = setTimeout(() => {
+      try {
+        setCloudSyncStatus('syncing');
+        const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+        setDoc(
+          liveDocRef,
+          sanitizeForFirestore({
+            ...currentPayloadObj,
+            lastUpdatedAt: new Date().toISOString(),
+          }),
+          { merge: true }
+        )
+          .then(() => {
+            lastSyncedPayloadRef.current = serializedPayload;
+            setIsCloudSynced(true);
+            setCloudSyncStatus('connected');
+            setLastCloudSyncTime(new Date());
+          })
+          .catch((err) => {
+            console.warn('Error updating Firestore in real-time:', err);
+            setCloudSyncStatus('error');
+          });
+      } catch (e) {
+        console.warn('Error syncing state to Firestore:', e);
+      }
+    }, 50000); // 50 segundos (50,000 ms) por actualización de estado/posición
+
+    return () => clearTimeout(timer);
+  }, [
+    spots,
+    vehicles,
+    washServices,
+    washOrders,
+    accessoryProducts,
+    accessorySales,
+    monthlyContracts,
+    completedSessions,
+    vipPaymentRecords,
+    vehicleAuditLogs,
+    settings,
+    users,
+    expenses,
+    openingCash,
+    cashRegisterClosures,
+    employees,
+    payrollSettlements,
+  ]);
 
   // Persistence effects
   useEffect(() => {
@@ -857,15 +787,13 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       prev.map((s) => {
         if (s.number === spotNumber && s.currentSession) {
           matched = true;
-          const updatedSession: ParkingSession = {
-            ...s.currentSession,
-            customerPaymentPreference: preference,
-            customerPaymentPreferenceTime: new Date().toISOString(),
-          };
-          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...s,
-            currentSession: updatedSession,
+            currentSession: {
+              ...s.currentSession,
+              customerPaymentPreference: preference,
+              customerPaymentPreferenceTime: new Date().toISOString(),
+            },
           };
         }
         return s;
@@ -1010,9 +938,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return spot;
       })
     );
-
-    // Sync active ticket for customer QR portal
-    syncActiveTicketToFirestore(session, settings);
 
     return session;
   };
@@ -1159,9 +1084,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     );
 
-    // Sync updated ticket
-    syncActiveTicketToFirestore(updatedSession, settings);
-
     return {
       success: true,
       message: `Vehículo ${newPlate} actualizado correctamente en puesto #${targetSpotNum}.`,
@@ -1196,8 +1118,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             totalServicesCost: updatedServicesCost,
             totalAmount: (spot.currentSession.parkingCost || settings.base30MinPrice) + updatedServicesCost,
           };
-
-          syncActiveTicketToFirestore(updatedSession, settings);
 
           return {
             ...spot,
@@ -1298,35 +1218,8 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
     }
 
-    // Synchronize attached accessory sales with the checkout payment method
-    setAccessorySales((prev) =>
-      prev.map((sale) => {
-        if (sale.spotNumber === spotNumber && (!sale.paid || !sale.ticketId)) {
-          return {
-            ...sale,
-            paid: true,
-            ticketId: currentSession.ticketNumber,
-            paymentMethod,
-            posProvider: posInfo?.provider,
-            authorizationCode: posInfo?.authorizationCode,
-            posFeePercent: posCalculation.feePercent > 0 ? posCalculation.feePercent : undefined,
-            posFeeAmount: posCalculation.feeAmount > 0 ? posCalculation.feeAmount : undefined,
-            netAmountReceived: posCalculation.netAmount,
-          };
-        }
-        return sale;
-      })
-    );
-
     // Save to historical completed sessions
     setCompletedSessions((prev) => [completedSession, ...prev]);
-
-    // Complete ticket in Firestore
-    completeTicketInFirestore(currentSession.ticketNumber, {
-      exitTime: effectiveExitTime,
-      totalAmount,
-      paymentMethod,
-    });
 
     // Free the spot (if it has an active contract active RIGHT NOW, return to 'reserved_monthly', otherwise 'available')
     setSpots((prev) =>
@@ -1381,13 +1274,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const plate = spot.currentSession.plate;
     const sessionId = spot.currentSession.id;
-    const ticketNumber = spot.currentSession.ticketNumber;
 
     // Remove any active wash orders related to this canceled session
     setWashOrders((prev) => prev.filter((order) => order.sessionId !== sessionId));
-
-    // Remove ticket from active_tickets in Firestore
-    completeTicketInFirestore(ticketNumber);
 
     // Free the spot (if it has an active monthly contract active RIGHT NOW, return to 'reserved_monthly', otherwise 'available')
     setSpots((prev) =>
@@ -1436,16 +1325,14 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const updatedOrders = [...currentOrders, newOrder];
             const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
             const accCost = (spot.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
-            const updatedSession = {
-              ...spot.currentSession,
-              washOrders: updatedOrders,
-              totalServicesCost: washCost + accCost,
-              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-            };
-            syncActiveTicketToFirestore(updatedSession, settings);
             return {
               ...spot,
-              currentSession: updatedSession,
+              currentSession: {
+                ...spot.currentSession,
+                washOrders: updatedOrders,
+                totalServicesCost: washCost + accCost,
+                totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+              },
             };
           }
           return spot;
@@ -1481,14 +1368,12 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updatedWash = spot.currentSession.washOrders.map((w) =>
             w.id === orderId ? { ...w, status, washerName: washerName || w.washerName } : w
           );
-          const updatedSession = {
-            ...spot.currentSession,
-            washOrders: updatedWash,
-          };
-          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...spot,
-            currentSession: updatedSession,
+            currentSession: {
+              ...spot.currentSession,
+              washOrders: updatedWash,
+            },
           };
         }
         return spot;
@@ -1527,16 +1412,14 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updatedOrders = [...currentOrders, washOrder];
           const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
           const accCost = (s.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
-          const updatedSession = {
-            ...s.currentSession,
-            washOrders: updatedOrders,
-            totalServicesCost: washCost + accCost,
-            totalAmount: s.currentSession.parkingCost + washCost + accCost,
-          };
-          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...s,
-            currentSession: updatedSession,
+            currentSession: {
+              ...s.currentSession,
+              washOrders: updatedOrders,
+              totalServicesCost: washCost + accCost,
+              totalAmount: s.currentSession.parkingCost + washCost + accCost,
+            },
           };
         }
         return s;
@@ -1552,17 +1435,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     paymentMethod: PaymentMethod,
     spotNumber?: number,
     clientName?: string,
-    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
-    siiBoletaNumber?: string,
-    transferVoucherNumber?: string
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string }
   ) => {
     const total = items.reduce((sum, item) => sum + item.total, 0);
     const saleId = `sale_${Date.now()}`;
-    const isChargedToSpot = spotNumber !== undefined && spotNumber !== null;
 
-    const posCalculation = !isChargedToSpot && (paymentMethod === 'tarjeta_debito' || paymentMethod === 'tarjeta_credito')
-      ? calculatePOSFee(total, paymentMethod, posInfo?.provider, settings)
-      : { feePercent: 0, feeAmount: 0, netAmount: total };
+    const posCalculation = calculatePOSFee(
+      total,
+      paymentMethod,
+      posInfo?.provider,
+      settings
+    );
 
     const sale: AccessorySale = {
       id: saleId,
@@ -1572,13 +1455,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       items,
       total,
       totalAmount: total,
-      paymentMethod: isChargedToSpot ? 'efectivo' : paymentMethod,
-      siiBoletaNumber: !isChargedToSpot && paymentMethod === 'efectivo' ? siiBoletaNumber?.trim() : undefined,
-      transferVoucherNumber: !isChargedToSpot && paymentMethod === 'transferencia' ? transferVoucherNumber?.trim() : undefined,
+      paymentMethod,
       clientName,
-      paid: !isChargedToSpot, // Only marked paid immediately if it's a direct counter sale
-      posProvider: !isChargedToSpot ? posInfo?.provider : undefined,
-      authorizationCode: !isChargedToSpot ? posInfo?.authorizationCode : undefined,
+      paid: true,
+      posProvider: posInfo?.provider,
+      authorizationCode: posInfo?.authorizationCode,
       posFeePercent: posCalculation.feePercent > 0 ? posCalculation.feePercent : undefined,
       posFeeAmount: posCalculation.feeAmount > 0 ? posCalculation.feeAmount : undefined,
       netAmountReceived: posCalculation.netAmount,
@@ -1606,16 +1487,14 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const updatedAcc = [...currentAcc, ...items];
             const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
             const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
-            const updatedSession = {
-              ...spot.currentSession,
-              accessorySales: updatedAcc,
-              totalServicesCost: washCost + accCost,
-              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-            };
-            syncActiveTicketToFirestore(updatedSession, settings);
             return {
               ...spot,
-              currentSession: updatedSession,
+              currentSession: {
+                ...spot.currentSession,
+                accessorySales: updatedAcc,
+                totalServicesCost: washCost + accCost,
+                totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+              },
             };
           }
           return spot;
@@ -1667,16 +1546,14 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const updatedAcc = [...currentAcc, ...items];
           const washCost = (s.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
           const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
-          const updatedSession = {
-            ...s.currentSession,
-            accessorySales: updatedAcc,
-            totalServicesCost: washCost + accCost,
-            totalAmount: s.currentSession.parkingCost + washCost + accCost,
-          };
-          syncActiveTicketToFirestore(updatedSession, settings);
           return {
             ...s,
-            currentSession: updatedSession,
+            currentSession: {
+              ...s.currentSession,
+              accessorySales: updatedAcc,
+              totalServicesCost: washCost + accCost,
+              totalAmount: s.currentSession.parkingCost + washCost + accCost,
+            },
           };
         }
         return s;
@@ -1684,198 +1561,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return true;
-  };
-
-  // Remove or Cancel a Wash Order (mistake by customer or admin)
-  const removeWashOrder = (orderId: string, spotNumber?: number): { success: boolean; message: string } => {
-    const targetOrder = washOrders.find((o) => o.id === orderId);
-    const serviceName = targetOrder?.serviceName || 'Servicio de lavado';
-
-    // Remove from global wash orders
-    setWashOrders((prev) => prev.filter((o) => o.id !== orderId));
-
-    // Remove from active spot session if attached
-    setSpots((prev) =>
-      prev.map((spot) => {
-        const isTargetSpot = (spotNumber && spot.number === spotNumber) ||
-          spot.currentSession?.washOrders?.some((w) => w.id === orderId);
-
-        if (isTargetSpot && spot.currentSession) {
-          const currentOrders = spot.currentSession.washOrders || [];
-          const updatedOrders = currentOrders.filter((w) => w.id !== orderId);
-          const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
-          const accCost = (spot.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
-          const updatedSession = {
-            ...spot.currentSession,
-            washOrders: updatedOrders,
-            totalServicesCost: washCost + accCost,
-            totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-          };
-          syncActiveTicketToFirestore(updatedSession, settings);
-
-          return {
-            ...spot,
-            currentSession: updatedSession,
-          };
-        }
-        return spot;
-      })
-    );
-
-    return {
-      success: true,
-      message: `"${serviceName}" eliminado exitosamente. El cobro fue descontado del ticket.`,
-    };
-  };
-
-  // Remove or Cancel an Accessory Product from an Active Spot Session (restores stock)
-  const removeAccessoryItemFromSpot = (
-    spotNumber: number,
-    productId: string,
-    removeQuantity?: number
-  ): { success: boolean; message: string } => {
-    const targetSpot = spots.find((s) => s.number === spotNumber);
-    if (!targetSpot || !targetSpot.currentSession) {
-      return { success: false, message: 'Puesto no encontrado o sin estadía activa.' };
-    }
-
-    const currentAcc = targetSpot.currentSession.accessorySales || [];
-    const itemIndex = currentAcc.findIndex((item) => item.productId === productId);
-    if (itemIndex === -1) {
-      return { success: false, message: 'El producto no está asociado a este ticket.' };
-    }
-
-    const targetItem = currentAcc[itemIndex];
-    const qtyToRestore = removeQuantity && removeQuantity < targetItem.quantity ? removeQuantity : targetItem.quantity;
-    const remainingQty = targetItem.quantity - qtyToRestore;
-
-    // 1. Restore stock in inventory
-    setAccessoryProducts((prev) =>
-      prev.map((prod) => (prod.id === productId ? { ...prod, stock: prod.stock + qtyToRestore } : prod))
-    );
-
-    // 2. Update accessorySales on spot session
-    let updatedAcc: AccessorySaleItem[];
-    if (remainingQty <= 0) {
-      updatedAcc = currentAcc.filter((_, idx) => idx !== itemIndex);
-    } else {
-      updatedAcc = currentAcc.map((item, idx) =>
-        idx === itemIndex
-          ? {
-              ...item,
-              quantity: remainingQty,
-              total: remainingQty * item.unitPrice,
-            }
-          : item
-      );
-    }
-
-    // 3. Update spots state
-    setSpots((prev) =>
-      prev.map((spot) => {
-        if (spot.number === spotNumber && spot.currentSession) {
-          const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
-          const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
-          const updatedSession = {
-            ...spot.currentSession,
-            accessorySales: updatedAcc,
-            totalServicesCost: washCost + accCost,
-            totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-          };
-          syncActiveTicketToFirestore(updatedSession, settings);
-
-          return {
-            ...spot,
-            currentSession: updatedSession,
-          };
-        }
-        return spot;
-      })
-    );
-
-    // 4. Update or remove unpaid pre-orders in accessorySales
-    setAccessorySales((prev) =>
-      prev
-        .map((sale) => {
-          if (sale.spotNumber === spotNumber && !sale.paid) {
-            const hasProd = sale.items.some((i) => i.productId === productId);
-            if (!hasProd) return sale;
-
-            const newItems = sale.items
-              .map((i) => {
-                if (i.productId === productId) {
-                  const rem = i.quantity - qtyToRestore;
-                  return rem > 0 ? { ...i, quantity: rem, total: rem * i.unitPrice } : null;
-                }
-                return i;
-              })
-              .filter(Boolean) as AccessorySaleItem[];
-
-            if (newItems.length === 0) return null;
-            const newTotal = newItems.reduce((sum, i) => sum + i.total, 0);
-            return { ...sale, items: newItems, total: newTotal, totalAmount: newTotal };
-          }
-          return sale;
-        })
-        .filter(Boolean) as AccessorySale[]
-    );
-
-    return {
-      success: true,
-      message: `"${targetItem.productName}" eliminado del ticket (${qtyToRestore} un. devueltas al inventario).`,
-    };
-  };
-
-  // Cancel an entire accessory sale (e.g. from shop sales list)
-  const cancelAccessorySale = (saleId: string): { success: boolean; message: string } => {
-    const sale = accessorySales.find((s) => s.id === saleId);
-    if (!sale) return { success: false, message: 'Venta no encontrada.' };
-
-    // Restore stock for all items
-    setAccessoryProducts((prev) =>
-      prev.map((prod) => {
-        const item = sale.items.find((i) => i.productId === prod.id);
-        if (item) {
-          return { ...prod, stock: prod.stock + item.quantity };
-        }
-        return prod;
-      })
-    );
-
-    // If attached to spot, remove items from spot
-    if (sale.spotNumber) {
-      setSpots((prev) =>
-        prev.map((spot) => {
-          if (spot.number === sale.spotNumber && spot.currentSession) {
-            const currentAcc = spot.currentSession.accessorySales || [];
-            const saleProductIds = new Set(sale.items.map((i) => i.productId));
-            const updatedAcc = currentAcc.filter((i) => !saleProductIds.has(i.productId));
-            const washCost = (spot.currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
-            const accCost = updatedAcc.reduce((sum, a) => sum + a.total, 0);
-            const updatedSession = {
-              ...spot.currentSession,
-              accessorySales: updatedAcc,
-              totalServicesCost: washCost + accCost,
-              totalAmount: spot.currentSession.parkingCost + washCost + accCost,
-            };
-            syncActiveTicketToFirestore(updatedSession, settings);
-
-            return {
-              ...spot,
-              currentSession: updatedSession,
-            };
-          }
-          return spot;
-        })
-      );
-    }
-
-    setAccessorySales((prev) => prev.filter((s) => s.id !== saleId));
-
-    return {
-      success: true,
-      message: 'Venta de accesorios anulada y productos restituidos al stock.',
-    };
   };
 
   // Create Monthly Contract
@@ -2129,57 +1814,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ? ' (El monto se cargó a la Cuenta Corriente VIP y se descontó de la Caja Diaria)'
           : ''
       }.`,
-    };
-  };
-
-  // Reclassify / Modify payment method for standalone accessory sales
-  const reclassifyAccessorySalePaymentMethod = (
-    saleId: string,
-    newPaymentMethod: PaymentMethod,
-    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
-    siiBoletaNumber?: string,
-    transferVoucherNumber?: string
-  ): { success: boolean; message: string } => {
-    const sale = accessorySales.find((s) => s.id === saleId);
-    if (!sale) {
-      return { success: false, message: 'La venta de accesorios no fue encontrada.' };
-    }
-
-    const prevMethod = sale.paymentMethod;
-    if (prevMethod === newPaymentMethod) {
-      return { success: false, message: 'El medio de pago ya es el seleccionado.' };
-    }
-
-    const totalSaleAmount = sale.totalAmount ?? sale.total ?? 0;
-    const posCalculation = calculatePOSFee(
-      totalSaleAmount,
-      newPaymentMethod,
-      posInfo?.provider,
-      settings
-    );
-
-    setAccessorySales((prev) =>
-      prev.map((s) => {
-        if (s.id === saleId) {
-          return {
-            ...s,
-            paymentMethod: newPaymentMethod,
-            posProvider: posInfo?.provider,
-            authorizationCode: posInfo?.authorizationCode,
-            siiBoletaNumber: newPaymentMethod === 'efectivo' ? siiBoletaNumber?.trim() : undefined,
-            transferVoucherNumber: newPaymentMethod === 'transferencia' ? transferVoucherNumber?.trim() : undefined,
-            posFeePercent: posCalculation.feePercent > 0 ? posCalculation.feePercent : undefined,
-            posFeeAmount: posCalculation.feeAmount > 0 ? posCalculation.feeAmount : undefined,
-            netAmountReceived: posCalculation.netAmount,
-          };
-        }
-        return s;
-      })
-    );
-
-    return {
-      success: true,
-      message: `Venta de tienda actualizada a ${newPaymentMethod.replace('_', ' ').toUpperCase()}.`,
     };
   };
 
@@ -2862,11 +2496,8 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addWashOrder,
         requestCustomerWashOrder,
         updateWashStatus,
-        removeWashOrder,
         sellAccessories,
         requestCustomerAccessories,
-        removeAccessoryItemFromSpot,
-        cancelAccessorySale,
         createMonthlyContract,
         updateMonthlyContract,
         deleteMonthlyContract,
@@ -2882,7 +2513,6 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         getVehicleByPlate,
         setCustomerPaymentPreference,
         reclassifySessionPaymentMethod,
-        reclassifyAccessorySalePaymentMethod,
         advanceTime,
         resetTime,
         resetToInitialData,
