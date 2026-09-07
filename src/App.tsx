@@ -247,7 +247,12 @@ function ParkingAppContent() {
           />
         )}
 
-        {activeTab === 'wash' && <CarWashPlatform />}
+        {activeTab === 'wash' && (
+          <CarWashPlatform
+            onCheckOutSpot={handleSpotCheckOut}
+            onNavigateToCaja={() => setActiveTab('caja')}
+          />
+        )}
 
         {activeTab === 'shop' && <AccessoriesShop />}
 

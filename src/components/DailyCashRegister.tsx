@@ -29,6 +29,7 @@ import {
   Smartphone,
   Banknote,
   Clock,
+  Sparkles,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
@@ -46,6 +47,7 @@ export const DailyCashRegister: React.FC = () => {
     completedSessions,
     accessorySales,
     monthlyContracts,
+    washOrders,
     expenses,
     addExpense,
     deleteExpense,
@@ -136,16 +138,32 @@ export const DailyCashRegister: React.FC = () => {
     (s) => s.paymentMethod !== 'cuenta_corriente_vip'
   );
 
+  // 2.1 Standalone paid wash orders today (Ingresó solo para lavado, no en parking bundle)
+  const todayStandalonePaidWashOrders = (washOrders || []).filter((w) => {
+    const isPaid = w.paid || w.status === 'delivered';
+    const paidDate = (w.paidAt || w.completedAt || w.requestedAt || '').split('T')[0];
+    const isPartOfTodaySession = todayPaidParkingSessions.some((s) =>
+      s.washOrders?.some((sw) => sw.id === w.id)
+    );
+    return isPaid && paidDate === todayStr && !isPartOfTodaySession && !!w.paymentMethod;
+  });
+
   // 3. Income totals strictly from actually collected funds
   const totalPaidParking = todayPaidParkingSessions.reduce(
     (acc, s) => acc + (s.parkingCost || 0),
     0
   );
-  const totalPaidWash = todayPaidParkingSessions.reduce(
+  const totalPaidWashFromParking = todayPaidParkingSessions.reduce(
     (acc, s) =>
       acc + (s.washOrders ? s.washOrders.reduce((wAcc, w) => wAcc + (w.price || 0), 0) : 0),
     0
   );
+  const totalPaidStandaloneWash = todayStandalonePaidWashOrders.reduce(
+    (acc, w) => acc + (w.price || 0),
+    0
+  );
+  const totalPaidWash = totalPaidWashFromParking + totalPaidStandaloneWash;
+
   const totalPaidShop =
     todayAccessorySales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0) +
     todayPaidParkingSessions.reduce(
@@ -201,6 +219,12 @@ export const DailyCashRegister: React.FC = () => {
         (incomeByMethod[s.paymentMethod] || 0) + (s.totalAmount || 0);
     }
   });
+  todayStandalonePaidWashOrders.forEach((w) => {
+    if (w.paymentMethod && w.paymentMethod !== 'cuenta_corriente_vip') {
+      incomeByMethod[w.paymentMethod] =
+        (incomeByMethod[w.paymentMethod] || 0) + (w.price || 0);
+    }
+  });
   todayAccessorySales.forEach((s) => {
     if (s.paymentMethod && s.paymentMethod !== 'cuenta_corriente_vip') {
       incomeByMethod[s.paymentMethod] =
@@ -232,7 +256,8 @@ export const DailyCashRegister: React.FC = () => {
   // POS Fee and Net calculations
   const totalPosFeesToday =
     todayPaidParkingSessions.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0) +
-    todayAccessorySales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0);
+    todayAccessorySales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0) +
+    todayStandalonePaidWashOrders.reduce((acc, w) => acc + (w.posFeeAmount || 0), 0);
 
   const totalCardGross =
     (incomeByMethod.tarjeta_debito || 0) + (incomeByMethod.tarjeta_credito || 0);
@@ -241,21 +266,27 @@ export const DailyCashRegister: React.FC = () => {
   // Breakdown by POS Terminal Operator
   const tuuSessions = todayPaidParkingSessions.filter((s) => s.posProvider === 'tuu');
   const tuuSales = todayAccessorySales.filter((s) => s.posProvider === 'tuu');
+  const tuuWashes = todayStandalonePaidWashOrders.filter((w) => w.posProvider === 'tuu');
   const tuuGross =
     tuuSessions.reduce((acc, s) => acc + (s.totalAmount || 0), 0) +
-    tuuSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0);
+    tuuSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0) +
+    tuuWashes.reduce((acc, w) => acc + (w.price || 0), 0);
   const tuuFees =
     tuuSessions.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0) +
-    tuuSales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0);
+    tuuSales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0) +
+    tuuWashes.reduce((acc, w) => acc + (w.posFeeAmount || 0), 0);
 
   const mpSessions = todayPaidParkingSessions.filter((s) => s.posProvider === 'mercadopago');
   const mpSales = todayAccessorySales.filter((s) => s.posProvider === 'mercadopago');
+  const mpWashes = todayStandalonePaidWashOrders.filter((w) => w.posProvider === 'mercadopago');
   const mpGross =
     mpSessions.reduce((acc, s) => acc + (s.totalAmount || 0), 0) +
-    mpSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0);
+    mpSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0) +
+    mpWashes.reduce((acc, w) => acc + (w.price || 0), 0);
   const mpFees =
     mpSessions.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0) +
-    mpSales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0);
+    mpSales.reduce((acc, s) => acc + (s.posFeeAmount || 0), 0) +
+    mpWashes.reduce((acc, w) => acc + (w.posFeeAmount || 0), 0);
 
   // Cash in drawer theoretical balance (Guaranteed 100% free of unpaid VIP credit)
   const theoreticalCashInDrawer = openingCash + incomeByMethod.efectivo - expensesFromCashBox;
@@ -846,13 +877,13 @@ export const DailyCashRegister: React.FC = () => {
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
               <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-400" />
-                Ventas & Pagos Recaudados en Caja Hoy ({todayPaidParkingSessions.length + todayVipPayments.length})
+                Ventas & Pagos Recaudados en Caja Hoy ({todayPaidParkingSessions.length + todayVipPayments.length + todayStandalonePaidWashOrders.length})
               </h3>
             </div>
 
-            {todayPaidParkingSessions.length === 0 && todayVipPayments.length === 0 ? (
+            {todayPaidParkingSessions.length === 0 && todayVipPayments.length === 0 && todayStandalonePaidWashOrders.length === 0 ? (
               <div className="p-8 text-center text-zinc-500 text-xs">
-                No hay pagos recaudados hoy aún. Al realizar cobros de salidas o abonos de clientes VIP se listarán aquí en tiempo real.
+                No hay pagos recaudados hoy aún. Al realizar cobros de salidas, lavados o abonos de clientes VIP se listarán aquí en tiempo real.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -869,6 +900,88 @@ export const DailyCashRegister: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
+                    {/* Standalone Paid Car Wash Orders (Solo Lavado Cobrado) */}
+                    {todayStandalonePaidWashOrders.map((order) => (
+                      <tr key={order.id} className="bg-cyan-950/20 hover:bg-cyan-950/40">
+                        <td className="p-3 font-mono text-cyan-400">
+                          {formatTimeOnly(order.paidAt || order.completedAt || order.requestedAt)}
+                        </td>
+                        <td className="p-3 font-mono font-bold text-cyan-200">
+                          <span className="bg-cyan-950/80 text-cyan-300 border border-cyan-500/50 px-2 py-0.5 rounded mr-2 text-[10px] inline-flex items-center gap-1 font-bold">
+                            <Sparkles className="w-3 h-3 text-cyan-400" />
+                            SOLO LAVADO
+                          </span>
+                          <span>{order.plate}</span>
+                        </td>
+                        <td className="p-3 text-zinc-200">
+                          <div className="flex items-center gap-1.5">
+                            <span>{order.clientName || 'Cliente Lavado de Paso'}</span>
+                            <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.2 rounded font-mono uppercase">
+                              {order.vehicleType || 'Auto'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-cyan-200/90 text-[11px]">
+                          <div className="font-semibold text-cyan-300">{order.serviceName}</div>
+                          <div className="text-[10px] text-zinc-400">
+                            Lavador: <strong className="text-zinc-300">{order.washerName || 'General'}</strong>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className="space-y-1">
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-cyan-950/80 text-cyan-300 border border-cyan-500/40">
+                              {(order.paymentMethod || 'efectivo').replace('_', ' ')}
+                            </span>
+                            {order.posProvider && (
+                              <div className="flex items-center gap-1.5 text-[10px]">
+                                <span className={`px-1.5 py-0.2 rounded font-bold ${
+                                  order.posProvider === 'tuu'
+                                    ? 'bg-cyan-950 text-cyan-300 border border-cyan-500/40'
+                                    : 'bg-sky-950 text-sky-300 border border-sky-500/40'
+                                }`}>
+                                  POS {order.posProvider === 'tuu' ? 'TUU' : 'MP'}
+                                </span>
+                                {order.authorizationCode && (
+                                  <span className="font-mono text-zinc-400">
+                                    Cód: <strong className="text-zinc-200">{order.authorizationCode}</strong>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {order.siiBoletaNumber && (
+                              <div className="text-[10px] text-emerald-400 font-mono">
+                                Boleta SII: #{order.siiBoletaNumber}
+                              </div>
+                            )}
+                            {order.transferVoucherNumber && (
+                              <div className="text-[10px] text-indigo-400 font-mono">
+                                Comprobante: #{order.transferVoucherNumber}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3 text-right font-mono">
+                          <div className="font-extrabold text-emerald-400 text-sm">
+                            +{formatCLP(order.price)}
+                          </div>
+                          {order.posFeeAmount !== undefined && order.posFeeAmount > 0 && (
+                            <div className="text-[10px] text-rose-400">
+                              Comisión ({order.posFeePercent}%): -{formatCLP(order.posFeeAmount)}
+                            </div>
+                          )}
+                          {order.netAmountReceived !== undefined && (
+                            <div className="text-[11px] font-bold text-emerald-300">
+                              Neto: {formatCLP(order.netAmountReceived)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3 text-center text-zinc-400 text-[11px]">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/50 text-[10px] font-bold">
+                            ✓ Cobrado en Caja
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
                     {/* VIP Abonos Collected Today */}
                     {todayVipPayments.map((vipPay) => (
                       <tr key={vipPay.id} className="bg-yellow-950/20 hover:bg-yellow-950/40">

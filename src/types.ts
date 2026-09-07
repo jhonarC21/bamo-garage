@@ -157,6 +157,10 @@ export interface WashOrder {
   startedAt?: string;
   completedAt?: string;
   paid: boolean;
+  paidAt?: string;
+  clientName?: string;
+  vehicleType?: VehicleType;
+  isStandaloneWash?: boolean;
   paymentMethod?: PaymentMethod;
   siiBoletaNumber?: string; // N° Boleta Electrónica SII para pagos en efectivo
   transferVoucherNumber?: string; // N° Transacción / Comprobante para transferencias

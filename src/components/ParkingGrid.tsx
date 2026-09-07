@@ -380,7 +380,7 @@ const SpotCard: React.FC<SpotCardProps> = ({
   onAddAccessory,
   onRequestCancelEntry,
 }) => {
-  const { toggleSpotValetParking, settings, currentUser } = useParking();
+  const { toggleSpotValetParking, settings, currentUser, washOrders: allGlobalWashOrders } = useParking();
   const isOccupied = spot.status === 'occupied' && spot.currentSession;
   const isReserved = spot.status === 'reserved_monthly' && spot.monthlyContract;
   const isAvailable = spot.status === 'available';
@@ -391,8 +391,17 @@ const SpotCard: React.FC<SpotCardProps> = ({
     ? calculateParkingFee(session.entryTime, currentTime, undefined, basePrice, extraPrice)
     : null;
 
-  const washOrders = session?.washOrders || [];
-  const washTotal = washOrders.reduce((sum, w) => sum + w.price, 0);
+  const sessionWashOrders = session?.washOrders || [];
+  const extraWashOrders = (allGlobalWashOrders || []).filter(
+    (w) =>
+      (w.spotNumber === spot.number || (session?.plate && w.plate.toUpperCase() === session.plate.toUpperCase())) &&
+      !w.paid &&
+      w.status !== 'delivered' &&
+      !sessionWashOrders.some((sw) => sw.id === w.id)
+  );
+  const activeSpotWashOrders = [...sessionWashOrders, ...extraWashOrders];
+  const washTotal = activeSpotWashOrders.reduce((sum, w) => sum + w.price, 0);
+  const hasReadyWash = activeSpotWashOrders.some((w) => w.status === 'ready');
   const accTotal = (session?.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
   const valetTotal = session?.hasValetParking ? (session.valetParkingFee || settings.valetParkingPrice || 2000) : 0;
   const grandTotal = (pricing?.totalParkingCost || 0) + washTotal + accTotal + valetTotal;
@@ -578,14 +587,24 @@ const SpotCard: React.FC<SpotCardProps> = ({
               </div>
 
               {/* Services Badges if any */}
-              {washOrders.length > 0 && (
-                <div className="border-t border-zinc-800/80 pt-1 flex items-center justify-between text-[10px] text-purple-300">
+              {activeSpotWashOrders.length > 0 && (
+                <div
+                  className={`border-t pt-1 flex items-center justify-between text-[10px] ${
+                    hasReadyWash
+                      ? 'border-emerald-700/60 bg-emerald-950/40 -mx-1 px-1.5 py-0.5 rounded text-emerald-300 font-medium'
+                      : 'border-zinc-800/80 text-purple-300'
+                  }`}
+                >
                   <span className="flex items-center gap-1 truncate">
-                    <Sparkles className="w-3 h-3 text-purple-400" />
-                    Lavado ({washOrders[0].status === 'ready' ? 'Listo' : 'En proceso'}):
+                    <Sparkles className={`w-3 h-3 ${hasReadyWash ? 'text-emerald-400' : 'text-purple-400'}`} />
+                    <span className="truncate">
+                      {hasReadyWash
+                        ? '✨ Lavado Listo (Sigue Estacionado):'
+                        : `Lavado (${activeSpotWashOrders[0].status === 'in_progress' ? 'En proceso' : 'Solicitado'}):`}
+                    </span>
                   </span>
-                  <span className="font-semibold font-mono text-purple-200">
-                    {formatCLP(washTotal)}
+                  <span className="font-semibold font-mono text-purple-200 shrink-0">
+                    +{formatCLP(washTotal)}
                   </span>
                 </div>
               )}

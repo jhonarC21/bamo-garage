@@ -46,6 +46,7 @@ import {
   DEFAULT_SETTINGS,
   calculateChileanPayroll,
   calculatePOSFee,
+  formatCLP,
 } from '../utils/pricing';
 
 interface CheckInData {
@@ -217,6 +218,17 @@ interface ParkingContextType {
   addWashOrder: (order: Omit<WashOrder, 'id' | 'requestedAt'>) => WashOrder;
   requestCustomerWashOrder: (spotNumber: number, serviceId: string, notes?: string) => WashOrder | null;
   updateWashStatus: (orderId: string, status: WashStatus, washerName?: string) => void;
+  collectStandaloneWashOrder: (
+    orderId: string,
+    paymentMethod: PaymentMethod,
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
+  ) => { success: boolean; message: string; order?: WashOrder };
+  assignWashOrderToSpot: (
+    orderId: string,
+    spotNumber: number
+  ) => { success: boolean; message: string };
   sellAccessories: (
     items: AccessorySaleItem[],
     paymentMethod: PaymentMethod,
@@ -1131,7 +1143,18 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       settings.extra10MinPrice
     );
 
-    const washCost = (currentSession.washOrders || []).reduce((sum, w) => sum + w.price, 0);
+    // Merge any wash orders for this spot OR for this plate that are active/ready and not yet paid
+    const attachedWashOrders = currentSession.washOrders || [];
+    const extraWashOrdersForPlate = washOrders.filter(
+      (w) =>
+        (w.spotNumber === spotNumber || w.plate.toUpperCase() === currentSession.plate.toUpperCase()) &&
+        !w.paid &&
+        w.status !== 'delivered' &&
+        !attachedWashOrders.some((aw) => aw.id === w.id)
+    );
+    const allWashOrders = [...attachedWashOrders, ...extraWashOrdersForPlate];
+
+    const washCost = allWashOrders.reduce((sum, w) => sum + w.price, 0);
     const accCost = (currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
     const valetCost = currentSession.hasValetParking ? (currentSession.valetParkingFee || 0) : 0;
     const totalServicesCost = washCost + accCost + valetCost;
@@ -1147,6 +1170,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const completedSession: ParkingSession = {
       ...currentSession,
+      washOrders: allWashOrders,
       exitTime: effectiveExitTime,
       isManualExitTime: !!customExitTime,
       status: 'completed',
@@ -1189,11 +1213,29 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     );
 
-    // Mark attached wash orders as delivered & paid
-    if (completedSession.washOrders && completedSession.washOrders.length > 0) {
-      const orderIds = completedSession.washOrders.map((w) => w.id);
+    // Mark attached wash orders as delivered & paid with payment details
+    if (allWashOrders.length > 0) {
+      const orderIds = allWashOrders.map((w) => w.id);
       setWashOrders((prev) =>
-        prev.map((o) => (orderIds.includes(o.id) ? { ...o, status: 'delivered', paid: true } : o))
+        prev.map((o) =>
+          orderIds.includes(o.id)
+            ? {
+                ...o,
+                status: 'delivered',
+                paid: true,
+                paidAt: effectiveExitTime,
+                completedAt: o.completedAt || effectiveExitTime,
+                paymentMethod,
+                posProvider: posInfo?.provider,
+                authorizationCode: posInfo?.authorizationCode,
+                siiBoletaNumber: paymentMethod === 'efectivo' ? siiBoletaNumber?.trim() : undefined,
+                transferVoucherNumber: paymentMethod === 'transferencia' ? transferVoucherNumber?.trim() : undefined,
+                posFeePercent: posCalculation.feePercent > 0 ? posCalculation.feePercent : undefined,
+                posFeeAmount: posCalculation.feeAmount > 0 ? posCalculation.feeAmount : undefined,
+                netAmountReceived: posCalculation.netAmount,
+              }
+            : o
+        )
       );
     }
 
@@ -1281,8 +1323,18 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Add Standalone or Linked Wash Order
   const addWashOrder = (orderData: Omit<WashOrder, 'id' | 'requestedAt'>): WashOrder => {
+    const cleanPlate = orderData.plate.trim().toUpperCase();
+    // Auto-detect if vehicle is currently in an occupied spot if spotNumber was not provided
+    const matchingSpot = spots.find(
+      (s) => s.status === 'occupied' && s.currentSession?.plate.toUpperCase() === cleanPlate
+    );
+    const effectiveSpotNumber = orderData.spotNumber || matchingSpot?.number;
+
     const newOrder: WashOrder = {
       ...orderData,
+      plate: cleanPlate,
+      spotNumber: effectiveSpotNumber,
+      isStandaloneWash: !effectiveSpotNumber,
       id: `wo_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       requestedAt: currentTime.toISOString(),
     };
@@ -1290,10 +1342,10 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setWashOrders((prev) => [newOrder, ...prev]);
 
     // If attached to an active spot session, update session
-    if (orderData.spotNumber) {
+    if (effectiveSpotNumber) {
       setSpots((prev) =>
         prev.map((spot) => {
-          if (spot.number === orderData.spotNumber && spot.currentSession) {
+          if (spot.number === effectiveSpotNumber && spot.currentSession) {
             const currentOrders = spot.currentSession.washOrders || [];
             const updatedOrders = [...currentOrders, newOrder];
             const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
@@ -1314,6 +1366,172 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     return newOrder;
+  };
+
+  // Collect standalone wash order (ingresó solo para lavado y cobrado) -> ingresa a Caja Diaria
+  const collectStandaloneWashOrder = (
+    orderId: string,
+    paymentMethod: PaymentMethod,
+    posInfo?: { provider: POSTerminalProvider; authorizationCode: string },
+    siiBoletaNumber?: string,
+    transferVoucherNumber?: string
+  ): { success: boolean; message: string; order?: WashOrder } => {
+    const order = washOrders.find((w) => w.id === orderId);
+    if (!order) {
+      return { success: false, message: 'La orden de lavado no fue encontrada.' };
+    }
+
+    const posCalculation = calculatePOSFee(
+      order.price,
+      paymentMethod,
+      posInfo?.provider,
+      settings
+    );
+
+    const nowIso = currentTime.toISOString();
+
+    const updatedOrder: WashOrder = {
+      ...order,
+      status: 'delivered',
+      paid: true,
+      paidAt: nowIso,
+      completedAt: order.completedAt || nowIso,
+      paymentMethod,
+      siiBoletaNumber: paymentMethod === 'efectivo' ? siiBoletaNumber?.trim() : undefined,
+      transferVoucherNumber: paymentMethod === 'transferencia' ? transferVoucherNumber?.trim() : undefined,
+      posProvider: posInfo?.provider,
+      authorizationCode: posInfo?.authorizationCode,
+      posFeePercent: posCalculation.feePercent > 0 ? posCalculation.feePercent : undefined,
+      posFeeAmount: posCalculation.feeAmount > 0 ? posCalculation.feeAmount : undefined,
+      netAmountReceived: posCalculation.netAmount,
+      isReconciled: false,
+      reconciliationStatus: 'pending',
+    };
+
+    setWashOrders((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
+
+    // Update vehicle spending and history
+    setVehicles((prev) =>
+      prev.map((v) => {
+        if (v.plate.toUpperCase() === order.plate.toUpperCase()) {
+          const isVipPayment = paymentMethod === 'cuenta_corriente_vip';
+          return {
+            ...v,
+            isVIP: isVipPayment ? true : v.isVIP,
+            vipAccumulatedBalance: isVipPayment
+              ? (v.vipAccumulatedBalance || 0) + order.price
+              : (v.vipAccumulatedBalance || 0),
+            totalSpent: (v.totalSpent || 0) + order.price,
+            visitsCount: (v.visitsCount || 0) + 1,
+            lastVisit: nowIso,
+          };
+        }
+        return v;
+      })
+    );
+
+    return {
+      success: true,
+      message: `Lavado patente ${order.plate} cobrado exitosamente e ingresado a la Caja Diaria (${formatCLP(order.price)} vía ${paymentMethod.replace('_', ' ').toUpperCase()}).`,
+      order: updatedOrder,
+    };
+  };
+
+  // Assign wash order to a spot (vehículo sigue estacionado)
+  const assignWashOrderToSpot = (
+    orderId: string,
+    spotNumber: number
+  ): { success: boolean; message: string } => {
+    const order = washOrders.find((w) => w.id === orderId);
+    if (!order) return { success: false, message: 'La orden no existe.' };
+
+    const spot = spots.find((s) => s.number === spotNumber);
+    if (!spot) return { success: false, message: `El puesto #${spotNumber} no existe.` };
+
+    const nowIso = currentTime.toISOString();
+
+    if (spot.status === 'occupied' && spot.currentSession) {
+      const currentOrders = spot.currentSession.washOrders || [];
+      const updatedOrders = currentOrders.some((o) => o.id === orderId)
+        ? currentOrders.map((o) => (o.id === orderId ? { ...o, spotNumber } : o))
+        : [...currentOrders, { ...order, spotNumber }];
+
+      const washCost = updatedOrders.reduce((sum, w) => sum + w.price, 0);
+      const accCost = (spot.currentSession.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
+
+      setSpots((prev) =>
+        prev.map((s) => {
+          if (s.number === spotNumber && s.currentSession) {
+            return {
+              ...s,
+              currentSession: {
+                ...s.currentSession,
+                washOrders: updatedOrders,
+                totalServicesCost: washCost + accCost,
+                totalAmount: spot.currentSession.parkingCost + washCost + accCost,
+              },
+            };
+          }
+          return s;
+        })
+      );
+    } else if (spot.status === 'available') {
+      const existingVehicle = getVehicleByPlate(order.plate);
+      const sessionNumber = Math.floor(1000 + Math.random() * 9000);
+      const newSession: ParkingSession = {
+        id: `sess_${Date.now()}`,
+        ticketNumber: `TK-${sessionNumber}`,
+        spotNumber,
+        plate: order.plate.toUpperCase(),
+        brand: existingVehicle?.brand || 'Particular',
+        model: existingVehicle?.model || 'Estándar',
+        color: existingVehicle?.color || 'Gris',
+        vehicleType: order.vehicleType || existingVehicle?.vehicleType || 'sedan',
+        clientName: order.clientName || existingVehicle?.clientName || 'Cliente Lavado',
+        clientPhone: existingVehicle?.clientPhone,
+        clientRut: existingVehicle?.clientRut,
+        isFrequent: existingVehicle?.isFrequent || false,
+        isVIP: existingVehicle?.isVIP || false,
+        entryTime: order.requestedAt || nowIso,
+        status: 'active',
+        baseTierMinutes: 30,
+        baseTierCost: settings.base30MinPrice,
+        extraTierMinutes: 0,
+        extraTierCost: 0,
+        extraTiersCount: 0,
+        parkingCost: settings.base30MinPrice,
+        totalServicesCost: order.price,
+        totalAmount: settings.base30MinPrice + order.price,
+        washOrders: [{ ...order, spotNumber }],
+        accessorySales: [],
+      };
+
+      setSpots((prev) =>
+        prev.map((s) => {
+          if (s.number === spotNumber) {
+            return {
+              ...s,
+              status: 'occupied',
+              currentSessionId: newSession.id,
+              currentSession: newSession,
+              lastStatusChange: nowIso,
+            };
+          }
+          return s;
+        })
+      );
+    } else {
+      return { success: false, message: `El puesto #${spotNumber} no está disponible.` };
+    }
+
+    setWashOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, spotNumber, isStandaloneWash: false } : o))
+    );
+
+    return {
+      success: true,
+      message: `Vehículo patente ${order.plate} asignado al puesto #${spotNumber}. El lavado y el estacionamiento se cobrarán juntos al registrar la salida.`,
+    };
   };
 
   // Update Wash Order Status
@@ -2471,6 +2689,8 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addWashOrder,
         requestCustomerWashOrder,
         updateWashStatus,
+        collectStandaloneWashOrder,
+        assignWashOrderToSpot,
         sellAccessories,
         requestCustomerAccessories,
         createMonthlyContract,

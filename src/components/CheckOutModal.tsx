@@ -35,7 +35,7 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
   onClose,
   spotNumber,
 }) => {
-  const { getSpotSession, checkOutVehicle, currentTime, settings, getVehicleByPlate } = useParking();
+  const { getSpotSession, checkOutVehicle, currentTime, settings, getVehicleByPlate, washOrders } = useParking();
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta_debito');
   const [posProvider, setPosProvider] = useState<POSTerminalProvider>('tuu');
@@ -49,6 +49,17 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
   const session = spotNumber !== null ? getSpotSession(spotNumber) : undefined;
   const vehicle = session?.plate ? getVehicleByPlate(session.plate) : undefined;
   const isVipClient = !!vehicle?.isVIP || !!session?.isVIP;
+
+  // Active / Ready Wash orders attached to this spot or this vehicle's plate
+  const attachedWashOrders = session?.washOrders || [];
+  const extraWashOrders = (washOrders || []).filter(
+    (w) =>
+      (w.spotNumber === spotNumber || (session?.plate && w.plate.toUpperCase() === session.plate.toUpperCase())) &&
+      !w.paid &&
+      w.status !== 'delivered' &&
+      !attachedWashOrders.some((aw) => aw.id === w.id)
+  );
+  const activeSessionWashOrders = [...attachedWashOrders, ...extraWashOrders];
 
   useEffect(() => {
     if (isOpen && spotNumber !== null) {
@@ -87,7 +98,7 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
       )
     : null;
 
-  const washTotal = (session?.washOrders || []).reduce((sum, w) => sum + w.price, 0);
+  const washTotal = activeSessionWashOrders.reduce((sum, w) => sum + w.price, 0);
   const accTotal = (session?.accessorySales || []).reduce((sum, a) => sum + a.total, 0);
   const valetTotal = session?.hasValetParking
     ? session.valetParkingFee || settings.valetParkingPrice || 2000
@@ -127,7 +138,7 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
       setCompletedData({
         ...result,
         pricing,
-        washOrders: session?.washOrders || [],
+        washOrders: activeSessionWashOrders,
         accessorySales: session?.accessorySales || [],
         hasValetParking: session?.hasValetParking,
         valetParkingFee: session?.valetParkingFee || settings.valetParkingPrice || 2000,
@@ -284,20 +295,37 @@ export const CheckOutModal: React.FC<CheckOutModalProps> = ({
               </div>
 
               {/* Wash Services if any */}
-              {session.washOrders && session.washOrders.length > 0 && (
-                <div className="border-t border-zinc-800/80 pt-2 space-y-1">
-                  <div className="font-semibold text-purple-300 flex items-center gap-1 text-[11px]">
-                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                    Servicios de Lavado de Autos:
+              {activeSessionWashOrders.length > 0 && (
+                <div className="border-t border-zinc-800/80 pt-2 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-purple-300 flex items-center gap-1 text-[11px]">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                      Servicios de Lavado de Autos:
+                    </div>
+                    <span className="text-[10px] font-mono text-purple-300 font-bold">
+                      +{formatCLP(washTotal)}
+                    </span>
                   </div>
-                  {session.washOrders.map((w, idx) => (
-                    <div key={idx} className="flex justify-between text-zinc-300 pl-4 text-[11px]">
-                      <span>{w.serviceName}</span>
-                      <span className="font-mono font-semibold text-purple-300">
+
+                  {activeSessionWashOrders.map((w, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-zinc-300 pl-4 text-[11px]">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span>{w.serviceName}</span>
+                        {w.status === 'ready' && (
+                          <span className="text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-700/60 px-1.5 py-0.2 rounded font-bold">
+                            ✓ Listo para entrega
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono font-semibold text-purple-300 shrink-0">
                         {formatCLP(w.price)}
                       </span>
                     </div>
                   ))}
+
+                  <div className="text-[10px] text-emerald-400/90 bg-emerald-950/40 border border-emerald-900/50 rounded-lg p-1.5 flex items-center gap-1.5 mt-1">
+                    <span>🚗 El vehículo fue lavado y sigue estacionado en el puesto #{spotNumber}. El valor del lavado se suma al total del parking a cobrar.</span>
+                  </div>
                 </div>
               )}
 

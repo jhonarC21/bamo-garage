@@ -23,6 +23,7 @@ export const BusinessAccounting: React.FC = () => {
     completedSessions,
     accessorySales,
     monthlyContracts,
+    washOrders,
     expenses,
     payrollSettlements,
     settings,
@@ -59,12 +60,26 @@ export const BusinessAccounting: React.FC = () => {
           (p.createdAt && p.createdAt.startsWith(currentYearMonth))
       );
 
+  const filteredWashOrders = periodFilter === 'all'
+    ? (washOrders || []).filter((w) => w.paid || w.status === 'delivered')
+    : (washOrders || []).filter(
+        (w) =>
+          (w.paid || w.status === 'delivered') &&
+          (w.paidAt || w.completedAt || w.requestedAt || '').startsWith(currentYearMonth)
+      );
+
+  const standalonePaidWashOrders = filteredWashOrders.filter((w) =>
+    !filteredSessions.some((s) => s.washOrders?.some((sw) => sw.id === w.id))
+  );
+
   // --- REVENUE BREAKDOWN ---
   const parkingGross = filteredSessions.reduce((acc, s) => acc + (s.parkingCost || 0), 0);
-  const washGross = filteredSessions.reduce(
+  const washGrossFromParking = filteredSessions.reduce(
     (acc, s) => acc + (s.washOrders ? s.washOrders.reduce((wAcc, w) => wAcc + (w.price || 0), 0) : 0),
     0
   );
+  const washGrossStandalone = standalonePaidWashOrders.reduce((acc, w) => acc + (w.price || 0), 0);
+  const washGross = washGrossFromParking + washGrossStandalone;
   const shopGross =
     filteredSales.reduce((acc, s) => acc + (s.totalAmount ?? s.total ?? 0), 0) +
     filteredSessions.reduce(
