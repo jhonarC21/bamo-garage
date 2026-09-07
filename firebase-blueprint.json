@@ -140,9 +140,36 @@
           "description": "Porcentaje de IVA aplicable (19% en Chile)"
         }
       }
+    },
+    "garageState": {
+      "title": "GarageState",
+      "description": "Snapshot de estado completo sincronizado en tiempo real para todos los dispositivos del garage",
+      "type": "object",
+      "properties": {
+        "spots": {
+          "type": "array",
+          "description": "Listado de puestos y sesiones activas"
+        },
+        "vehicles": {
+          "type": "array",
+          "description": "Base de datos histórica de vehículos"
+        },
+        "settings": {
+          "type": "object",
+          "description": "Configuraciones globales de tarifas y operación"
+        },
+        "lastUpdatedAt": {
+          "type": "string",
+          "description": "Marca de tiempo de última sincronización"
+        }
+      }
     }
   },
   "firestore": {
+    "/garage_state/{docId}": {
+      "schema": "garageState",
+      "description": "Documento central de sincronización multi-dispositivo en tiempo real"
+    },
     "/parkingSessions/{sessionId}": {
       "schema": "parkingSession",
       "description": "Estadías activas e históricas de vehículos en el estacionamiento"

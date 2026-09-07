@@ -55,6 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     lockSystem,
     settings,
     cloudSyncStatus,
+    forceCloudSync,
   } = useParking();
 
   const [isBluetoothModalOpen, setIsBluetoothModalOpen] = useState(false);
@@ -89,8 +90,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Cloud Sync Status Badge */}
-          <div
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition ${
+          <button
+            id="cloud-sync-status-badge"
+            type="button"
+            onClick={async () => {
+              if (cloudSyncStatus !== 'syncing') {
+                await forceCloudSync();
+              }
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition cursor-pointer hover:opacity-90 active:scale-95 ${
               cloudSyncStatus === 'connected'
                 ? 'bg-emerald-950/50 text-emerald-300 border-emerald-500/40 shadow-sm'
                 : cloudSyncStatus === 'syncing'
@@ -99,10 +107,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
             title={
               cloudSyncStatus === 'connected'
-                ? 'Sincronizado en tiempo real con Firebase Firestore (Multi-dispositivo en vivo)'
+                ? 'Conectado a Firebase Firestore en tiempo real. Clic para sincronizar datos ahora.'
                 : cloudSyncStatus === 'syncing'
-                ? 'Sincronizando cambios con la nube...'
-                : 'Modo local (Reconectando nube...)'
+                ? 'Sincronizando cambios con la base de datos...'
+                : 'Modo local. Clic para reconectar a la base de datos Firestore.'
             }
           >
             {cloudSyncStatus === 'connected' ? (
@@ -118,10 +126,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             ) : (
               <>
                 <CloudOff className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">Modo Local</span>
+                <span className="hidden sm:inline">Reconectar Nube</span>
               </>
             )}
-          </div>
+          </button>
 
           <div className="flex items-center gap-1.5 bg-zinc-900/90 px-2.5 py-1 rounded-lg border border-zinc-800 text-zinc-300">
             <Clock className="w-3.5 h-3.5 text-amber-400" />

@@ -13,7 +13,10 @@
       }
     ]
   },
-  "firestore": {
-    "rules": "firestore.rules"
-  }
+  "firestore": [
+    {
+      "database": "ai-studio-bamogaragespa-dc5c1a1e-d54e-40ce-baf4-a21eacc6caa4",
+      "rules": "firestore.rules"
+    }
+  ]
 }

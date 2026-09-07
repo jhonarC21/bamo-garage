@@ -432,6 +432,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(true);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('connected');
   const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(null);
+  const [listenerRetryTrigger, setListenerRetryTrigger] = useState<number>(0);
   const isIncomingCloudUpdate = useRef<boolean>(false);
   const isInitialCloudLoadComplete = useRef<boolean>(false);
   const lastSyncedPayloadRef = useRef<string>('');
@@ -451,6 +452,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Real-time listener: Multi-device instant synchronization via Firebase Firestore
   useEffect(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
       const unsubscribe = onSnapshot(
@@ -526,15 +528,28 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         (error) => {
           console.warn('Firestore live sync error:', error);
           setCloudSyncStatus('offline');
+          // Automatically attempt to reconnect after 5s
+          retryTimer = setTimeout(() => {
+            setListenerRetryTrigger((prev) => prev + 1);
+          }, 5000);
         }
       );
 
-      return () => unsubscribe();
+      return () => {
+        if (retryTimer) clearTimeout(retryTimer);
+        unsubscribe();
+      };
     } catch (err) {
       console.warn('Error setting up Firestore listener:', err);
       setCloudSyncStatus('offline');
+      retryTimer = setTimeout(() => {
+        setListenerRetryTrigger((prev) => prev + 1);
+      }, 5000);
+      return () => {
+        if (retryTimer) clearTimeout(retryTimer);
+      };
     }
-  }, []);
+  }, [listenerRetryTrigger]);
 
   // Optimized Push local changes to Firestore: Only write on real state changes (Dirty check) & 30s batch window
   useEffect(() => {
@@ -2314,6 +2329,8 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           accessorySales,
           monthlyContracts,
           completedSessions,
+          vipPaymentRecords,
+          vehicleAuditLogs,
           settings,
           users,
           expenses,
@@ -2328,6 +2345,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsCloudSynced(true);
       setCloudSyncStatus('connected');
       setLastCloudSyncTime(new Date());
+      setListenerRetryTrigger((prev) => prev + 1);
       return { success: true, message: 'Sincronización con la nube completada exitosamente.' };
     } catch (err: any) {
       setCloudSyncStatus('error');
