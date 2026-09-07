@@ -30,6 +30,12 @@ import {
   Banknote,
   Clock,
   Sparkles,
+  HardDrive,
+  RefreshCw,
+  Download,
+  Wifi,
+  WifiOff,
+  Database,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
@@ -64,12 +70,21 @@ export const DailyCashRegister: React.FC = () => {
     vipPaymentRecords,
     payVIPAccumulatedBalance,
     reclassifySessionPaymentMethod,
+    cajaSyncStatus,
+    forceSyncCajaQueue,
+    cajaMirrorLedger,
   } = useParking();
 
   // Active view tab inside Cash Register
   const [activeSubTab, setActiveSubTab] = useState<
     'movements' | 'vip_receivables' | 'expenses' | 'closure' | 'history'
   >('movements');
+
+  // Emergency Local Mirror & Offline Status State
+  const [isMirrorModalOpen, setIsMirrorModalOpen] = useState(false);
+  const [isSyncingQueue, setIsSyncingQueue] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [mirrorFilter, setMirrorFilter] = useState<'all' | 'pending' | 'synced'>('all');
 
   const [reclassifyNotification, setReclassifyNotification] = useState<string | null>(null);
   const [editingSessionPayment, setEditingSessionPayment] = useState<string | null>(null);
@@ -291,6 +306,41 @@ export const DailyCashRegister: React.FC = () => {
   // Cash in drawer theoretical balance (Guaranteed 100% free of unpaid VIP credit)
   const theoreticalCashInDrawer = openingCash + incomeByMethod.efectivo - expensesFromCashBox;
 
+  // Emergency Local Mirror Synchronization Handler
+  const handleSyncQueue = async () => {
+    setIsSyncingQueue(true);
+    setSyncFeedback(null);
+    try {
+      const result = await forceSyncCajaQueue();
+      if (result.succeeded > 0) {
+        setSyncFeedback(`✅ ¡Éxito! Se subieron ${result.succeeded} movimiento(s) de caja a Firebase Firestore.`);
+      } else if (result.failed > 0) {
+        setSyncFeedback(`⚠️ No se pudo conectar a Firebase (${result.failed} pendientes). La información sigue 100% protegida en el disco local.`);
+      } else {
+        setSyncFeedback('✅ La cola de respaldo está limpia: todos los movimientos están sincronizados con la nube.');
+      }
+    } catch (err: any) {
+      setSyncFeedback(`⚠️ Error al sincronizar: ${err?.message || 'Fallo de conexión'}. Los datos locales están a salvo.`);
+    } finally {
+      setIsSyncingQueue(false);
+      setTimeout(() => setSyncFeedback(null), 6000);
+    }
+  };
+
+  const downloadMirrorBackup = () => {
+    try {
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(cajaMirrorLedger, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `bamo_caja_respaldo_local_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (e) {
+      console.error('Error al exportar respaldo local:', e);
+    }
+  };
+
   // Handlers
   const handleOpenCashRegister = (e: React.FormEvent) => {
     e.preventDefault();
@@ -496,6 +546,84 @@ export const DailyCashRegister: React.FC = () => {
         <div className="p-3 bg-yellow-950/80 border border-yellow-500/80 rounded-xl text-yellow-200 text-xs flex items-center gap-2 shadow-lg animate-fadeIn">
           <Crown className="w-4 h-4 text-yellow-400 shrink-0 fill-yellow-400" />
           <span>{vipAbonoSuccessMsg}</span>
+        </div>
+      )}
+
+      {/* Emergency Local Mirror & Native Offline Status Banner (Requirements 1, 2 & 3) */}
+      <div className="bg-[#11131b] border border-cyan-900/40 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-cyan-950/80 text-cyan-400 border border-cyan-700/50 flex items-center justify-center shrink-0">
+            <HardDrive className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-cyan-200 uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                Respaldo Local Espejo Activo
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800/60">
+                Firestore Offline Native Cache
+              </span>
+              {cajaSyncStatus.isOnline ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-700/50 flex items-center gap-1">
+                  <Wifi className="w-3 h-3" /> Conectado
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/80 text-amber-400 border border-amber-700/50 flex items-center gap-1">
+                  <WifiOff className="w-3 h-3" /> Modo Offline Seguro
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              Cada cobro y movimiento se graba en el disco local antes de viajar a la nube. Si se corta el internet o fallan reglas, tus datos quedan asegurados.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+          {cajaSyncStatus.pendingCount > 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-950 text-amber-300 border border-amber-600/70 flex items-center gap-1.5 animate-pulse">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                {cajaSyncStatus.pendingCount} pendiente(s)
+              </span>
+              <button
+                onClick={handleSyncQueue}
+                disabled={isSyncingQueue}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-black font-bold text-xs shadow-md transition disabled:opacity-50"
+                title="Subir registros pendientes a Cloud Firestore"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingQueue ? 'animate-spin' : ''}`} />
+                {isSyncingQueue ? 'Subiendo...' : 'Sincronizar'}
+              </button>
+            </div>
+          ) : (
+            <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              Nube y disco al día
+            </span>
+          )}
+
+          <button
+            onClick={() => setIsMirrorModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-semibold transition"
+            title="Ver auditoría de movimientos guardados en el espejo local"
+          >
+            <Database className="w-3.5 h-3.5 text-cyan-400" />
+            Auditoría Espejo ({cajaMirrorLedger.length})
+          </button>
+        </div>
+      </div>
+
+      {syncFeedback && (
+        <div className="p-3 bg-zinc-900 border border-cyan-600/60 rounded-xl text-xs flex items-center justify-between text-zinc-200 shadow-lg animate-fadeIn">
+          <span>{syncFeedback}</span>
+          <button
+            onClick={() => setSyncFeedback(null)}
+            className="text-zinc-400 hover:text-zinc-200 text-xs ml-3"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -1972,6 +2100,175 @@ export const DailyCashRegister: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal: Emergency Local Storage Mirror (Respaldo Local a Prueba de Fallos) */}
+      {isMirrorModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#12141C] border border-cyan-800/70 rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center justify-center shrink-0">
+                  <HardDrive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Respaldo Espejo de Emergencia (Local Storage Mirror)
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    Registro forense guardado en el disco local de este equipo. Protege la caja contra cortes de internet y errores de reglas.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsMirrorModalOpen(false)}
+                className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Quick Actions & Filters */}
+            <div className="p-4 border-b border-zinc-800 bg-[#161824] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMirrorFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    mirrorFilter === 'all'
+                      ? 'bg-cyan-600 text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Todos ({cajaMirrorLedger.length})
+                </button>
+                <button
+                  onClick={() => setMirrorFilter('pending')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    mirrorFilter === 'pending'
+                      ? 'bg-amber-600 text-black'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Pendientes ({cajaMirrorLedger.filter((m) => m.syncStatus !== 'synced').length})
+                </button>
+                <button
+                  onClick={() => setMirrorFilter('synced')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    mirrorFilter === 'synced'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Sincronizados ({cajaMirrorLedger.filter((m) => m.syncStatus === 'synced').length})
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSyncQueue}
+                  disabled={isSyncingQueue || cajaMirrorLedger.filter((m) => m.syncStatus !== 'synced').length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-black font-bold text-xs shadow-md transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingQueue ? 'animate-spin' : ''}`} />
+                  {isSyncingQueue ? 'Subiendo a Firebase...' : 'Reintentar Sincronización'}
+                </button>
+                <button
+                  onClick={downloadMirrorBackup}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-semibold transition"
+                >
+                  <Download className="w-3.5 h-3.5 text-cyan-400" />
+                  Descargar JSON
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Table of Records */}
+            <div className="p-4 overflow-y-auto flex-1 max-h-[55vh]">
+              {cajaMirrorLedger.length === 0 ? (
+                <div className="text-center py-12 text-zinc-500 text-sm">
+                  <Database className="w-8 h-8 mx-auto mb-2 opacity-40 text-cyan-400" />
+                  No hay movimientos registrados en el espejo local todavía.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-zinc-300">
+                    <thead className="bg-zinc-900/90 text-zinc-400 text-[11px] uppercase tracking-wider sticky top-0 border-b border-zinc-800">
+                      <tr>
+                        <th className="py-2.5 px-3">Fecha / Hora</th>
+                        <th className="py-2.5 px-3">Tipo</th>
+                        <th className="py-2.5 px-3">Descripción</th>
+                        <th className="py-2.5 px-3">Cajero</th>
+                        <th className="py-2.5 px-3 text-right">Monto</th>
+                        <th className="py-2.5 px-3 text-center">Estado Sinc.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/60">
+                      {cajaMirrorLedger
+                        .filter((m) => {
+                          if (mirrorFilter === 'pending') return m.syncStatus !== 'synced';
+                          if (mirrorFilter === 'synced') return m.syncStatus === 'synced';
+                          return true;
+                        })
+                        .map((mov) => {
+                          const isSynced = mov.syncStatus === 'synced';
+                          return (
+                            <tr key={mov.id} className="hover:bg-zinc-800/40 transition">
+                              <td className="py-2.5 px-3 font-mono text-zinc-400 whitespace-nowrap">
+                                {formatDateTime(mov.timestamp)}
+                              </td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                  {mov.type.replace('_', ' ')}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 max-w-xs truncate" title={mov.description}>
+                                {mov.description}
+                              </td>
+                              <td className="py-2.5 px-3 text-zinc-400 whitespace-nowrap">
+                                {mov.cashier}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                                {formatCLP(mov.amount)}
+                              </td>
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                {isSynced ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/50">
+                                    <CheckCircle2 className="w-3 h-3" /> Sincronizado
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800/50 cursor-help"
+                                    title={mov.errorReason || 'Pendiente de subir a Firebase'}
+                                  >
+                                    <AlertTriangle className="w-3 h-3 text-amber-400" /> Pendiente
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-zinc-800 bg-zinc-950/80 flex items-center justify-between text-xs text-zinc-400">
+              <span>
+                Total registrados en disco: <strong className="text-zinc-200">{cajaMirrorLedger.length}</strong> movimientos.
+              </span>
+              <button
+                onClick={() => setIsMirrorModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-semibold transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

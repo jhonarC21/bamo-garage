@@ -48,6 +48,15 @@ import {
   calculatePOSFee,
   formatCLP,
 } from '../utils/pricing';
+import {
+  recordCajaMovement,
+  syncPendingCajaRecords,
+  subscribeToSyncStatus,
+  getSyncStatus,
+  getMirrorLedger,
+  SyncStatusState,
+  CajaMovementRecord,
+} from '../services/cajaOfflineMirror';
 
 interface CheckInData {
   spotNumber: number;
@@ -267,6 +276,11 @@ interface ParkingContextType {
   restoreFromBackupData: (backupObj: any) => { success: boolean; message: string };
   restoreFromSnapshot: (snapshotId: string) => { success: boolean; message: string };
   forceCloudSync: () => Promise<{ success: boolean; message: string }>;
+
+  // Emergency Local Mirror & Caja Sync
+  cajaSyncStatus: SyncStatusState;
+  forceSyncCajaQueue: () => Promise<{ attempted: number; succeeded: number; failed: number }>;
+  cajaMirrorLedger: CajaMovementRecord[];
 }
 
 const ParkingContext = createContext<ParkingContextType | undefined>(undefined);
@@ -449,6 +463,10 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const isInitialCloudLoadComplete = useRef<boolean>(false);
   const lastSyncedPayloadRef = useRef<string>('');
 
+  // Requirement 2 & 3: Local Storage Mirror y Estado de Sincronización de Caja
+  const [cajaSyncStatus, setCajaSyncStatus] = useState<SyncStatusState>(() => getSyncStatus());
+  const [cajaMirrorLedger, setCajaMirrorLedger] = useState<CajaMovementRecord[]>(() => getMirrorLedger());
+
   const [simulatedMinutesAdded, setSimulatedMinutesAdded] = useState<number>(0);
   const [baseCurrentTime, setBaseCurrentTime] = useState<Date>(new Date());
 
@@ -458,6 +476,26 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setBaseCurrentTime(new Date());
     }, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Requirement 3: Sincronización Automática al Iniciar la App
+  useEffect(() => {
+    // Al cargar la app, revisa si hay registros pendientes en localStorage
+    // Si hay internet y acceso, los sube a Firestore y limpia la memoria local.
+    syncPendingCajaRecords().then((res) => {
+      if (res.succeeded > 0) {
+        console.log(`[CajaMirror] Sincronización inicial exitosa: ${res.succeeded} registros pendientes subidos.`);
+      }
+    });
+
+    const unsubscribeStatus = subscribeToSyncStatus((status) => {
+      setCajaSyncStatus(status);
+      setCajaMirrorLedger(getMirrorLedger());
+    });
+
+    return () => {
+      unsubscribeStatus();
+    };
   }, []);
 
   const currentTime = new Date(baseCurrentTime.getTime() + simulatedMinutesAdded * 60000);
@@ -1242,6 +1280,28 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Save to historical completed sessions
     setCompletedSessions((prev) => [completedSession, ...prev]);
 
+    // Requirement 2: Espejo Local de Emergencia para Cobro de Parking
+    recordCajaMovement({
+      type: 'cobro_parking',
+      amount: totalAmount,
+      cashier: currentUser?.name || 'Cajero',
+      description: `Cobro Parking Patente ${spot.currentSession.plate} (${completedSession.ticketNumber})`,
+      paymentMethod,
+      details: {
+        sessionId: completedSession.id,
+        ticketNumber: completedSession.ticketNumber,
+        spotNumber,
+        plate: spot.currentSession.plate,
+        parkingCost: completedSession.parkingCost,
+        totalServicesCost: completedSession.totalServicesCost,
+        finalAmount: totalAmount,
+        paymentMethod,
+        posInfo,
+        siiBoletaNumber,
+        transferVoucherNumber,
+      },
+    });
+
     // Free the spot (if it has a monthly contract, return to 'reserved_monthly', otherwise 'available')
     setSpots((prev) =>
       prev.map((s) => {
@@ -1409,6 +1469,25 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setWashOrders((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
+
+    // Requirement 2: Espejo Local de Emergencia para Cobro de Lavado
+    recordCajaMovement({
+      type: 'cobro_lavado',
+      amount: order.price,
+      cashier: currentUser?.name || 'Cajero',
+      description: `Cobro Lavado Patente ${order.plate} (${order.serviceName})`,
+      paymentMethod,
+      details: {
+        orderId,
+        plate: order.plate,
+        serviceName: order.serviceName,
+        price: order.price,
+        paymentMethod,
+        posInfo,
+        siiBoletaNumber,
+        transferVoucherNumber,
+      },
+    });
 
     // Update vehicle spending and history
     setVehicles((prev) =>
@@ -1669,6 +1748,23 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setAccessorySales((prev) => [sale, ...prev]);
 
+    // Requirement 2: Espejo Local de Emergencia para Venta de Accesorios
+    recordCajaMovement({
+      type: 'venta_accesorio',
+      amount: total,
+      cashier: currentUser?.name || 'Cajero',
+      description: `Venta accesorios (${items.length} productos, Total $${total.toLocaleString('es-CL')})`,
+      paymentMethod,
+      details: {
+        saleId: sale.id,
+        items,
+        total,
+        spotNumber,
+        clientName,
+        posInfo,
+      },
+    });
+
     // If attached to spot session
     if (spotNumber) {
       setSpots((prev) =>
@@ -1912,6 +2008,24 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       reconciliationStatus: 'pending',
     };
     setVipPaymentRecords((prev) => [newRecord, ...prev]);
+
+    // Requirement 2: Espejo Local de Emergencia para Abono VIP
+    recordCajaMovement({
+      type: 'abono_vip',
+      amount,
+      cashier: currentUser?.name || 'Cajero',
+      description: `Abono cuenta corriente VIP (${clean}) - $${amount.toLocaleString('es-CL')}`,
+      paymentMethod,
+      details: {
+        recordId: newRecord.id,
+        plateOrRut: clean,
+        amount,
+        paymentMethod,
+        posInfo,
+        siiBoletaNumber,
+        transferVoucherNumber,
+      },
+    });
 
     setVehicles((prev) =>
       prev.map((v) => {
@@ -2195,6 +2309,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdAt: new Date().toISOString(),
     };
     setExpenses((prev) => [newExpense, ...prev]);
+
+    // Requirement 2: Espejo Local de Emergencia para Gastos
+    recordCajaMovement({
+      type: 'gasto',
+      amount: newExpense.amount,
+      cashier: currentUser?.name || 'Cajero',
+      description: `Gasto: ${newExpense.category} - ${newExpense.concept}`,
+      paymentMethod: newExpense.paymentSource === 'efectivo_caja' ? 'efectivo' : 'banco',
+      details: newExpense,
+    });
+
     return newExpense;
   };
 
@@ -2203,7 +2328,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const deleteExpense = (id: string) => {
+    const target = expenses.find((e) => e.id === id);
     setExpenses((prev) => prev.filter((e) => e.id !== id));
+
+    // Requirement 2: Espejo Local de Emergencia para Anulación de Gastos
+    recordCajaMovement({
+      type: 'anulacion_gasto',
+      amount: target ? target.amount : 0,
+      cashier: currentUser?.name || 'Cajero',
+      description: `Anulación de gasto: ${target?.concept || id}`,
+      details: { expenseId: id, previousData: target },
+    });
   };
 
   const openDailyCashRegister = (
@@ -2224,6 +2359,22 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setOpeningCash(initialCash);
     localStorage.setItem(STORAGE_KEYS.CASH_SHIFT, JSON.stringify(newShift));
     localStorage.setItem(STORAGE_KEYS.OPENING_CASH, String(initialCash));
+
+    // Requirement 2: Espejo Local de Emergencia para Apertura de Caja
+    recordCajaMovement({
+      type: 'apertura',
+      amount: initialCash,
+      cashier: cashierName || currentUser.name,
+      description: `Apertura de turno de caja - Inicial: $${initialCash.toLocaleString('es-CL')}`,
+      paymentMethod: 'efectivo',
+      details: {
+        shiftId: newShift.id,
+        initialCash,
+        notes,
+        date: newShift.date,
+      },
+    });
+
     return newShift;
   };
 
@@ -2241,6 +2392,21 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setCurrentCashShift(closedShift);
       localStorage.setItem(STORAGE_KEYS.CASH_SHIFT, JSON.stringify(closedShift));
     }
+
+    // Requirement 2: Espejo Local de Emergencia para Cierre de Caja
+    const actualCash = recordData.actualCashCounted ?? recordData.actualCountedCash ?? 0;
+    recordCajaMovement({
+      type: 'cierre',
+      amount: actualCash,
+      cashier: recordData.cashierName || recordData.closedBy || currentUser.name,
+      description: `Cierre de turno de caja - Contado: $${actualCash.toLocaleString('es-CL')} (Dif: $${recordData.difference.toLocaleString('es-CL')})`,
+      paymentMethod: 'efectivo',
+      details: {
+        closureId: newRecord.id,
+        ...recordData,
+      },
+    });
+
     return newRecord;
   };
 
@@ -2718,6 +2884,9 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         restoreFromBackupData,
         restoreFromSnapshot,
         forceCloudSync,
+        cajaSyncStatus,
+        forceSyncCajaQueue: syncPendingCajaRecords,
+        cajaMirrorLedger,
       }}
     >
       {children}
