@@ -141,6 +141,65 @@ export interface WashService {
 
 export type ReconciliationStatus = 'pending' | 'verified' | 'discrepancy';
 
+export type DamageZone =
+  | 'frontal'
+  | 'trasera'
+  | 'lateral_izquierdo'
+  | 'lateral_derecho'
+  | 'techo'
+  | 'vidrios'
+  | 'llantas_neumaticos'
+  | 'luces_focos'
+  | 'espejos'
+  | 'interior';
+
+export type DamageType =
+  | 'rayon'
+  | 'abolladura'
+  | 'pintura_saltada'
+  | 'quebrado'
+  | 'pieza_faltante'
+  | 'mancha_quemadura'
+  | 'descuadre'
+  | 'otro';
+
+export type DamageSeverity = 'leve' | 'moderado' | 'grave';
+
+export interface VehicleDamageItem {
+  id: string;
+  zone: DamageZone;
+  type: DamageType;
+  description: string;
+  severity: DamageSeverity;
+  photoUrl?: string;
+}
+
+export interface IntakePhoto {
+  id: string;
+  url: string;
+  caption: string;
+  zone?: DamageZone | string;
+  takenAt: string;
+}
+
+export interface WashInspectionSheet {
+  id: string;
+  orderId?: string;
+  plate: string;
+  inspectorName: string;
+  inspectedAt: string;
+  damages: VehicleDamageItem[];
+  photos: IntakePhoto[];
+  initialFuelLevel?: 'vacio' | 'un_cuarto' | 'medio' | 'tres_cuartos' | 'lleno';
+  odometerKm?: number;
+  valuableItemsDeclared?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerSignatureAccepted?: boolean;
+  customerSignatureName?: string;
+  observations?: string;
+}
+
 export interface WashOrder {
   id: string;
   ticketId?: string;
@@ -161,6 +220,7 @@ export interface WashOrder {
   clientName?: string;
   vehicleType?: VehicleType;
   isStandaloneWash?: boolean;
+  inspectionSheet?: WashInspectionSheet;
   paymentMethod?: PaymentMethod;
   siiBoletaNumber?: string; // N° Boleta Electrónica SII para pagos en efectivo
   transferVoucherNumber?: string; // N° Transacción / Comprobante para transferencias

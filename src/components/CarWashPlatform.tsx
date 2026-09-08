@@ -19,10 +19,23 @@ import {
   ArrowRight,
   ShieldCheck,
   ExternalLink,
+  ShieldAlert,
+  Camera,
+  Eye,
+  FileText,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime, formatTimeOnly, calculateParkingFee } from '../utils/pricing';
-import { WashOrder, WashStatus, VehicleType, VEHICLE_TYPES, PaymentMethod, POSTerminalProvider } from '../types';
+import {
+  WashOrder,
+  WashStatus,
+  VehicleType,
+  VEHICLE_TYPES,
+  PaymentMethod,
+  POSTerminalProvider,
+  WashInspectionSheet,
+} from '../types';
+import { WashInspectionModal } from './WashInspectionModal';
 
 interface CarWashPlatformProps {
   onCheckOutSpot?: (spotNumber: number) => void;
@@ -44,6 +57,8 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
     assignWashOrderToSpot,
     currentTime,
     settings,
+    currentUser,
+    updateWashInspectionSheet,
   } = useParking();
 
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
@@ -54,6 +69,11 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
   const [washerName, setWasherName] = useState('Juan Pablo R.');
   const [notes, setNotes] = useState('');
   const [catalogFilterType, setCatalogFilterType] = useState<'all' | VehicleType>('all');
+
+  // Inspection Modal states
+  const [inspectionModalOrder, setInspectionModalOrder] = useState<WashOrder | null>(null);
+  const [newOrderInspectionSheet, setNewOrderInspectionSheet] = useState<WashInspectionSheet | null>(null);
+  const [isCreatingInspectionForNewOrder, setIsCreatingInspectionForNewOrder] = useState(false);
 
   // Standalone Wash Payment Collection Modal state
   const [collectModalOrder, setCollectModalOrder] = useState<WashOrder | null>(null);
@@ -134,13 +154,58 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
       status: 'pending',
       notes: notes.trim() || undefined,
       paid: false,
+      inspectionSheet: newOrderInspectionSheet || undefined,
     });
 
     setIsNewOrderModalOpen(false);
+    setNewOrderInspectionSheet(null);
     setPlate('');
     setSelectedSpot('');
     setSelectedServiceId('');
     setNotes('');
+  };
+
+  // Helper to render Damage Inspection button or badge for any Wash Order
+  const renderInspectionButtonOrBadge = (order: WashOrder) => {
+    if (order.inspectionSheet) {
+      return (
+        <div className="bg-cyan-950/50 border border-cyan-700/60 rounded-lg p-2 text-xs flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 text-cyan-200 truncate">
+            <ShieldAlert className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="text-[11px] truncate">
+              Ficha: <strong className="text-white">{order.inspectionSheet.damages.length}</strong> daño(s) • <strong className="text-white">{order.inspectionSheet.photos.length}</strong> foto(s)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setInspectionModalOrder(order);
+            }}
+            className="px-2 py-0.5 rounded bg-cyan-900/90 hover:bg-cyan-800 text-cyan-200 text-[10px] font-bold shrink-0 transition flex items-center gap-1"
+            title="Ver o editar ficha de daños y fotos"
+          >
+            <Eye className="w-3 h-3" />
+            Ver Ficha
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setInspectionModalOrder(order);
+        }}
+        className="w-full py-1.5 px-2 rounded-lg bg-zinc-950/70 hover:bg-cyan-950/60 text-zinc-400 hover:text-cyan-300 border border-zinc-800 hover:border-cyan-700/60 text-[10px] font-medium flex items-center justify-center gap-1.5 transition"
+        title="Registrar daños previos y fotos para evitar acusaciones"
+      >
+        <Camera className="w-3.5 h-3.5 text-cyan-400" />
+        <span>+ Registrar Daños / Fotos</span>
+      </button>
+    );
   };
 
   const washersList = ['Juan Pablo R.', 'Marcos Soto', 'Cristian Vega', 'Esteban Muñoz'];
@@ -252,6 +317,8 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                   Solicitado: <span className="font-mono">{formatTimeOnly(order.requestedAt)}</span>
                 </div>
 
+                {renderInspectionButtonOrBadge(order)}
+
                 <div className="pt-2 border-t border-zinc-800 flex items-center justify-between gap-2">
                   <select
                     value={order.washerName || ''}
@@ -328,6 +395,8 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                   <Clock className="w-3 h-3 text-cyan-400" />
                   Iniciado: <span className="font-mono">{order.startedAt ? formatTimeOnly(order.startedAt) : '-'}</span>
                 </div>
+
+                {renderInspectionButtonOrBadge(order)}
 
                 <div className="pt-2 border-t border-zinc-800">
                   <button
@@ -422,6 +491,8 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                       Lavado: {formatCLP(order.price)}
                     </div>
                   </div>
+
+                  {renderInspectionButtonOrBadge(order)}
 
                   {isParked ? (
                     /* CASE 1: VEHICLE IS PARKED AND STILL PARKED - SUM TO PARKING */
@@ -551,6 +622,7 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                 <div className="text-[10px] text-zinc-500">
                   {order.completedAt ? formatTimeOnly(order.completedAt) : 'Hoy'} • Lavador: {order.washerName}
                 </div>
+                {renderInspectionButtonOrBadge(order)}
               </div>
             ))}
             {deliveredOrders.length === 0 && (
@@ -779,6 +851,53 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                   onChange={(e) => setNotes(e.target.value)}
                   className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-purple-500"
                 />
+              </div>
+
+              {/* Ficha de Inspección y Registro de Daños Preexistentes */}
+              <div className="bg-cyan-950/30 border border-cyan-800/60 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-cyan-400" />
+                    <span className="font-bold text-xs text-white">Ficha de Daños y Fotos de Ingreso</span>
+                  </div>
+                  <span className="text-[10px] text-cyan-300 uppercase tracking-wider font-semibold">
+                    Anti-Reclamos
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-snug">
+                  Documenta rayones, abolladuras o trizaduras previas y adjunta fotos con fecha/hora antes de mojar el vehículo.
+                </p>
+                {newOrderInspectionSheet ? (
+                  <div className="flex items-center justify-between bg-cyan-950/80 border border-cyan-700/80 rounded-lg p-2 text-xs">
+                    <div className="text-cyan-200">
+                      <span className="font-bold text-emerald-400">✓ Ficha completada:</span>{' '}
+                      <strong>{newOrderInspectionSheet.damages.length}</strong> daño(s),{' '}
+                      <strong>{newOrderInspectionSheet.photos.length}</strong> foto(s)
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsCreatingInspectionForNewOrder(true)}
+                      className="px-2.5 py-1 bg-cyan-900 hover:bg-cyan-800 text-cyan-200 rounded font-semibold text-[11px] transition"
+                    >
+                      Editar Ficha
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!plate.trim()) {
+                        alert('Por favor ingrese primero la patente del vehículo.');
+                        return;
+                      }
+                      setIsCreatingInspectionForNewOrder(true);
+                    }}
+                    className="w-full py-2 px-3 bg-zinc-900 hover:bg-cyan-950 border border-zinc-700 hover:border-cyan-600 rounded-lg text-cyan-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Llenar Ficha de Daños y Tomar Fotos Ahora</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800">
@@ -1184,6 +1303,38 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* MODAL: WASH INSPECTION / DAMAGE REGISTRATION */}
+      {inspectionModalOrder && (
+        <WashInspectionModal
+          plate={inspectionModalOrder.plate}
+          orderId={inspectionModalOrder.id}
+          clientName={inspectionModalOrder.clientName}
+          initialSheet={inspectionModalOrder.inspectionSheet}
+          currentInspectorName={currentUser?.name || inspectionModalOrder.washerName || 'Inspector Lavado'}
+          onSave={(sheet) => {
+            updateWashInspectionSheet(inspectionModalOrder.id, sheet);
+            setInspectionModalOrder(null);
+            setActionNotification(`✓ Ficha de daños y fotos guardada exitosamente para vehículo patente ${sheet.plate}.`);
+          }}
+          onClose={() => setInspectionModalOrder(null)}
+        />
+      )}
+
+      {/* MODAL: WASH INSPECTION FOR NEW ORDER BEFORE CREATION */}
+      {isCreatingInspectionForNewOrder && (
+        <WashInspectionModal
+          plate={plate.trim().toUpperCase() || 'VEHICULO'}
+          initialSheet={newOrderInspectionSheet || undefined}
+          currentInspectorName={currentUser?.name || washerName || 'Inspector Lavado'}
+          onSave={(sheet) => {
+            setNewOrderInspectionSheet(sheet);
+            setIsCreatingInspectionForNewOrder(false);
+            setActionNotification(`✓ Ficha pre-lavado completada para ${sheet.plate}. Se adjuntará a la nueva orden.`);
+          }}
+          onClose={() => setIsCreatingInspectionForNewOrder(false)}
+        />
       )}
     </div>
   );

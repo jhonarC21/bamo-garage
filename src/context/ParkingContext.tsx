@@ -23,6 +23,7 @@ import {
   AppUser,
   CashRegisterOpeningRecord,
   CashRegisterCloseRecord,
+  WashInspectionSheet,
   POSTerminalProvider,
   AutoSnapshot,
   ReconciliationStatus,
@@ -225,6 +226,7 @@ interface ParkingContextType {
     options?: { enabled?: boolean; fee?: number; notes?: string; driver?: string }
   ) => void;
   addWashOrder: (order: Omit<WashOrder, 'id' | 'requestedAt'>) => WashOrder;
+  updateWashInspectionSheet: (orderId: string, sheet: WashInspectionSheet) => void;
   requestCustomerWashOrder: (spotNumber: number, serviceId: string, notes?: string) => WashOrder | null;
   updateWashStatus: (orderId: string, status: WashStatus, washerName?: string) => void;
   collectStandaloneWashOrder: (
@@ -1613,6 +1615,40 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   };
 
+  // Update Wash Inspection Sheet (Damage & Photos Registration)
+  const updateWashInspectionSheet = (orderId: string, sheet: WashInspectionSheet) => {
+    setWashOrders((prev) =>
+      prev.map((o) => {
+        if (o.id === orderId) {
+          return {
+            ...o,
+            inspectionSheet: sheet,
+          };
+        }
+        return o;
+      })
+    );
+
+    // Also update spot session if linked to active spot
+    setSpots((prev) =>
+      prev.map((spot) => {
+        if (spot.currentSession?.washOrders?.some((w) => w.id === orderId)) {
+          const updatedWash = spot.currentSession.washOrders.map((w) =>
+            w.id === orderId ? { ...w, inspectionSheet: sheet } : w
+          );
+          return {
+            ...spot,
+            currentSession: {
+              ...spot.currentSession,
+              washOrders: updatedWash,
+            },
+          };
+        }
+        return spot;
+      })
+    );
+  };
+
   // Update Wash Order Status
   const updateWashStatus = (orderId: string, status: WashStatus, washerName?: string) => {
     setWashOrders((prev) =>
@@ -2853,6 +2889,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         cancelActiveSpotSession,
         toggleSpotValetParking,
         addWashOrder,
+        updateWashInspectionSheet,
         requestCustomerWashOrder,
         updateWashStatus,
         collectStandaloneWashOrder,

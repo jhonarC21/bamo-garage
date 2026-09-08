@@ -114,6 +114,25 @@
       },
       "required": ["id", "spotNumber", "clientName", "plate", "monthlyFee", "startDate", "status"]
     },
+    "washOrder": {
+      "title": "WashOrder",
+      "description": "Orden de servicio de lavado automotriz con ficha de inspección de daños previa y fotos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "plate": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "price": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "ready", "delivered"] },
+        "washerName": { "type": "string" },
+        "requestedAt": { "type": "string" },
+        "inspectionSheet": {
+          "type": "object",
+          "description": "Ficha de inspección de ingreso con registro de daños preexistentes y fotos testimoniales"
+        }
+      },
+      "required": ["id", "plate", "serviceName", "price", "status"]
+    },
     "businessSettings": {
       "title": "BusinessSettings",
       "description": "Parámetros globales de precios, impuestos y configuración del garage",
