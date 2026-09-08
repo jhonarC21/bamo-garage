@@ -578,25 +578,36 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         },
         (error) => {
-          console.warn('Firestore live sync error:', error);
+          console.warn('Firestore live sync error (operating in local/offline mode):', error?.message || error);
           setCloudSyncStatus('offline');
-          // Automatically attempt to reconnect after 5s
+          // Con reconexión inteligente: solo reintentar si el dispositivo está en línea tras un intervalo prudente (20s)
           retryTimer = setTimeout(() => {
-            setListenerRetryTrigger((prev) => prev + 1);
-          }, 5000);
+            if (typeof navigator !== 'undefined' && navigator.onLine) {
+              setListenerRetryTrigger((prev) => prev + 1);
+            }
+          }, 20000);
         }
       );
 
+      // Reintentar de inmediato cuando el navegador detecta restablecimiento de red
+      const handleOnline = () => {
+        setListenerRetryTrigger((prev) => prev + 1);
+      };
+      window.addEventListener('online', handleOnline);
+
       return () => {
         if (retryTimer) clearTimeout(retryTimer);
+        window.removeEventListener('online', handleOnline);
         unsubscribe();
       };
     } catch (err) {
       console.warn('Error setting up Firestore listener:', err);
       setCloudSyncStatus('offline');
       retryTimer = setTimeout(() => {
-        setListenerRetryTrigger((prev) => prev + 1);
-      }, 5000);
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          setListenerRetryTrigger((prev) => prev + 1);
+        }
+      }, 20000);
       return () => {
         if (retryTimer) clearTimeout(retryTimer);
       };
@@ -906,6 +917,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (data.washServiceId) {
       const service = washServices.find((w) => w.id === data.washServiceId);
       if (service) {
+        const defaultWasher =
+          currentUser?.role === 'admin'
+            ? currentUser.name
+            : (users.find((u) => u.role === 'admin' && u.active)?.name || currentUser?.name || 'Administrador General');
+
         const washOrder: WashOrder = {
           id: `wo_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
           spotNumber: data.spotNumber,
@@ -913,6 +929,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           serviceId: service.id,
           serviceName: service.name,
           price: service.price,
+          washerName: defaultWasher,
           status: 'pending',
           requestedAt: effectiveEntryTime,
           paid: false,
@@ -1392,11 +1409,17 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
     const effectiveSpotNumber = orderData.spotNumber || matchingSpot?.number;
 
+    const defaultWasher =
+      currentUser?.role === 'admin'
+        ? currentUser.name
+        : (users.find((u) => u.role === 'admin' && u.active)?.name || currentUser?.name || 'Administrador General');
+
     const newOrder: WashOrder = {
       ...orderData,
       plate: cleanPlate,
       spotNumber: effectiveSpotNumber,
       isStandaloneWash: !effectiveSpotNumber,
+      washerName: orderData.washerName || defaultWasher,
       id: `wo_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       requestedAt: currentTime.toISOString(),
     };
@@ -1695,6 +1718,11 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const service = washServices.find((s) => s.id === serviceId);
     if (!service) return null;
 
+    const defaultWasher =
+      currentUser?.role === 'admin'
+        ? currentUser.name
+        : (users.find((u) => u.role === 'admin' && u.active)?.name || currentUser?.name || 'Administrador General');
+
     const washOrder: WashOrder = {
       id: `wo_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       ticketId: spot.currentSession.ticketNumber,
@@ -1703,6 +1731,7 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       serviceId: service.id,
       serviceName: service.name,
       price: service.price,
+      washerName: defaultWasher,
       status: 'pending',
       notes: notes ? `📱 QR Cliente: ${notes}` : '📱 Solicitado desde Portal QR Móvil (Pagar al Salir)',
       requestedAt: currentTime.toISOString(),

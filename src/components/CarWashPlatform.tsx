@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sparkles,
   Clock,
   Car,
   User,
+  UserCheck,
   Plus,
   CheckCircle2,
   AlertCircle,
@@ -58,17 +59,144 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
     currentTime,
     settings,
     currentUser,
+    users,
+    employees,
     updateWashInspectionSheet,
   } = useParking();
+
+  // Lista de lavadores y responsables estrictamente basada en los usuarios y personal registrados en la app
+  const registeredWashers = useMemo(() => {
+    const activeUsers = (users || []).filter((u) => u.active);
+    const seenNames = new Set<string>();
+    const list: {
+      id: string;
+      name: string;
+      role: string;
+      roleLabel: string;
+      isAdmin: boolean;
+      isCurrent: boolean;
+    }[] = [];
+
+    // Prioridad 1: Si el usuario activo es el Administrador, él debe ser el responsable principal
+    if (currentUser && currentUser.role === 'admin') {
+      list.push({
+        id: currentUser.id,
+        name: currentUser.name,
+        role: 'admin',
+        roleLabel: 'Administrador (Responsable Principal)',
+        isAdmin: true,
+        isCurrent: true,
+      });
+      seenNames.add(currentUser.name.trim().toLowerCase());
+    } else {
+      // Si el usuario activo no es admin, ubicar al administrador general registrado al inicio
+      const adminUser = activeUsers.find((u) => u.role === 'admin');
+      if (adminUser) {
+        list.push({
+          id: adminUser.id,
+          name: adminUser.name,
+          role: 'admin',
+          roleLabel: 'Administrador (Responsable General)',
+          isAdmin: true,
+          isCurrent: currentUser?.id === adminUser.id,
+        });
+        seenNames.add(adminUser.name.trim().toLowerCase());
+      }
+    }
+
+    // Prioridad 2: Otros usuarios registrados en la app (lavadores, operadores, cajeros, supervisores)
+    for (const u of activeUsers) {
+      const key = u.name.trim().toLowerCase();
+      if (!seenNames.has(key)) {
+        seenNames.add(key);
+        const roleTag =
+          u.role === 'admin'
+            ? 'Administrador'
+            : u.role === 'lavador'
+            ? 'Lavador Especialista'
+            : u.role === 'supervisor'
+            ? 'Supervisor'
+            : u.role === 'cajero'
+            ? 'Cajero'
+            : 'Operador';
+        list.push({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          roleLabel: `${roleTag}${currentUser?.id === u.id ? ' (Usuario Activo)' : ''}`,
+          isAdmin: u.role === 'admin',
+          isCurrent: currentUser?.id === u.id,
+        });
+      }
+    }
+
+    // Prioridad 3: Personal registrado en nómina/empleados de la app
+    for (const emp of (employees || []).filter((e) => e.active)) {
+      const key = emp.name.trim().toLowerCase();
+      if (!seenNames.has(key)) {
+        seenNames.add(key);
+        const roleTag =
+          emp.role === 'lavador'
+            ? 'Lavador (Nómina)'
+            : emp.role === 'administrador'
+            ? 'Administrador'
+            : emp.role === 'supervisor'
+            ? 'Supervisor'
+            : emp.role;
+        list.push({
+          id: emp.id,
+          name: emp.name,
+          role: emp.role,
+          roleLabel: roleTag,
+          isAdmin: emp.role === 'administrador',
+          isCurrent: false,
+        });
+      }
+    }
+
+    // Resguardo si la lista estuviese vacía
+    if (list.length === 0) {
+      list.push({
+        id: currentUser?.id || 'usr_admin',
+        name: currentUser?.name || 'Administrador General',
+        role: currentUser?.role || 'admin',
+        roleLabel: 'Administrador (Responsable)',
+        isAdmin: true,
+        isCurrent: true,
+      });
+    }
+
+    return list;
+  }, [users, employees, currentUser]);
+
+  // Responsable por defecto del lavado: Si es perfil de administrador, él es el responsable
+  const defaultResponsibleWasherName = useMemo(() => {
+    if (currentUser?.role === 'admin') {
+      return currentUser.name;
+    }
+    const adminInList = registeredWashers.find((w) => w.isAdmin);
+    if (adminInList) return adminInList.name;
+    return currentUser?.name || registeredWashers[0]?.name || 'Administrador General';
+  }, [currentUser, registeredWashers]);
 
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [selectedSpot, setSelectedSpot] = useState<string>('');
   const [plate, setPlate] = useState('');
   const [selectedVehicleType, setSelectedVehicleType] = useState<VehicleType>('sedan');
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
-  const [washerName, setWasherName] = useState('Juan Pablo R.');
+  const [washerName, setWasherName] = useState(() => {
+    if (currentUser?.role === 'admin') return currentUser.name;
+    return currentUser?.name || 'Administrador General';
+  });
   const [notes, setNotes] = useState('');
   const [catalogFilterType, setCatalogFilterType] = useState<'all' | VehicleType>('all');
+
+  // Si el perfil activo es o cambia al administrador, asignar automáticamente como responsable
+  useEffect(() => {
+    if (currentUser?.role === 'admin') {
+      setWasherName(currentUser.name);
+    }
+  }, [currentUser]);
 
   // Inspection Modal states
   const [inspectionModalOrder, setInspectionModalOrder] = useState<WashOrder | null>(null);
@@ -150,7 +278,7 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
       serviceId: service.id,
       serviceName: service.name,
       price: service.price,
-      washerName: washerName.trim() || undefined,
+      washerName: washerName.trim() || defaultResponsibleWasherName,
       status: 'pending',
       notes: notes.trim() || undefined,
       paid: false,
@@ -163,6 +291,13 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
     setSelectedSpot('');
     setSelectedServiceId('');
     setNotes('');
+  };
+
+  const handleOpenNewOrderModal = () => {
+    setIsNewOrderModalOpen(true);
+    // Si es perfil de administrador, él debe ser el responsable del lavado por defecto
+    setWasherName(defaultResponsibleWasherName);
+    setNewOrderInspectionSheet(null);
   };
 
   // Helper to render Damage Inspection button or badge for any Wash Order
@@ -207,8 +342,6 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
       </button>
     );
   };
-
-  const washersList = ['Juan Pablo R.', 'Marcos Soto', 'Cristian Vega', 'Esteban Muñoz'];
 
   // Catalog filtered services
   const displayedCatalogServices = washServices.filter((s) => {
@@ -260,18 +393,36 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
             Gestión y Cola de Lavado de Autos
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Asigna lavadores, gestiona tiempos y sincroniza el estado en tiempo real con el QR del cliente.
+            Responsables asignados por usuarios registrados de la app (sin selección al azar).
           </p>
         </div>
 
-        <button
-          id="btn-open-new-wash"
-          onClick={() => setIsNewOrderModalOpen(true)}
-          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-purple-600/30 transition active:scale-95 self-start md:self-auto border border-purple-400/30"
-        >
-          <Plus className="w-4 h-4" />
-          Nueva Orden de Lavado
-        </button>
+        <div className="flex items-center gap-3 self-start md:self-auto">
+          {/* Active Admin / Responsible Washer Indicator */}
+          <div className="bg-zinc-900/90 border border-zinc-750 rounded-xl px-3 py-2 flex items-center gap-2.5 text-xs">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div>
+              <div className="text-[10px] text-zinc-400">Responsable Activo:</div>
+              <div className="font-bold text-white flex items-center gap-1.5">
+                <span>{defaultResponsibleWasherName}</span>
+                {currentUser?.role === 'admin' && (
+                  <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-mono">
+                    ADMIN
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <button
+            id="btn-open-new-wash"
+            onClick={handleOpenNewOrderModal}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg shadow-purple-600/30 transition active:scale-95 border border-purple-400/30 shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            Nueva Orden de Lavado
+          </button>
+        </div>
       </div>
 
       {/* Kanban Board of Wash Orders */}
@@ -324,16 +475,22 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                     value={order.washerName || ''}
                     onChange={(e) => updateWashStatus(order.id, 'pending', e.target.value)}
                     className="bg-zinc-950 border border-zinc-700 rounded text-[10px] text-zinc-300 px-1.5 py-1 flex-1 focus:outline-none focus:border-indigo-500"
+                    title="Asignar responsable del lavado entre usuarios registrados"
                   >
-                    <option value="">Asignar Lavador</option>
-                    {washersList.map((w) => (
-                      <option key={w} value={w}>{w}</option>
+                    <option value="">-- Responsable Registrado --</option>
+                    {registeredWashers.map((w) => (
+                      <option key={w.id} value={w.name}>
+                        {w.name} ({w.isAdmin ? 'Admin' : w.roleLabel})
+                      </option>
                     ))}
                   </select>
 
                   <button
-                    onClick={() => updateWashStatus(order.id, 'in_progress', order.washerName || washersList[0])}
-                    className="bg-cyan-600 hover:bg-cyan-500 text-white px-2.5 py-1 rounded text-[10px] font-bold flex items-center gap-1 transition shadow-sm border border-cyan-400/30"
+                    onClick={() => {
+                      const targetWasher = order.washerName || defaultResponsibleWasherName;
+                      updateWashStatus(order.id, 'in_progress', targetWasher);
+                    }}
+                    className="bg-cyan-600 hover:bg-cyan-500 text-white px-2.5 py-1 rounded text-[10px] font-bold flex items-center gap-1 transition shadow-sm border border-cyan-400/30 shrink-0"
                     title="Comenzar lavado ahora"
                   >
                     <Play className="w-3 h-3" />
@@ -386,9 +543,36 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                   <div className="text-[11px] font-bold text-emerald-400 font-mono">{formatCLP(order.price)}</div>
                 </div>
 
-                <div className="text-[10px] text-cyan-300 flex items-center gap-1">
-                  <User className="w-3 h-3" />
-                  Lavador: <strong className="text-white">{order.washerName || 'Sin asignar'}</strong>
+                <div className="text-[10px] text-cyan-300 flex items-center justify-between gap-1 bg-cyan-950/40 border border-cyan-900/50 rounded-lg p-1.5">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <UserCheck className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="truncate">
+                      Responsable: <strong className="text-white">{order.washerName || defaultResponsibleWasherName}</strong>
+                    </span>
+                  </div>
+                  {((order.washerName && order.washerName.toLowerCase().includes('admin')) ||
+                    (!order.washerName && currentUser?.role === 'admin') ||
+                    (currentUser?.role === 'admin' && order.washerName === currentUser.name)) && (
+                    <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded shrink-0">
+                      Admin
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-1 text-[10px] px-0.5">
+                  <span className="text-zinc-500 text-[9px]">Reasignar:</span>
+                  <select
+                    value={order.washerName || defaultResponsibleWasherName}
+                    onChange={(e) => updateWashStatus(order.id, 'in_progress', e.target.value)}
+                    className="bg-zinc-950 border border-zinc-800 hover:border-zinc-700 rounded text-[9px] text-zinc-300 px-1.5 py-0.5 focus:outline-none"
+                    title="Reasignar a otro usuario o personal registrado"
+                  >
+                    {registeredWashers.map((w) => (
+                      <option key={w.id} value={w.name}>
+                        {w.name} ({w.isAdmin ? 'Admin' : w.roleLabel})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="text-[10px] text-zinc-400 flex items-center gap-1">
@@ -577,10 +761,12 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                     </div>
                   )}
 
-                  <div className="text-[10px] text-zinc-400 pt-0.5">
-                    Lavado por: <span className="text-zinc-200">{order.washerName}</span> • Listo:{' '}
-                    <span className="font-mono text-zinc-300">
-                      {order.completedAt ? formatTimeOnly(order.completedAt) : '-'}
+                  <div className="text-[10px] text-zinc-400 pt-0.5 flex items-center justify-between gap-1">
+                    <span className="truncate">
+                      Lavado por: <strong className="text-zinc-200">{order.washerName || defaultResponsibleWasherName}</strong>
+                    </span>
+                    <span className="font-mono text-zinc-400 text-[10px] shrink-0">
+                      Listo: {order.completedAt ? formatTimeOnly(order.completedAt) : '-'}
                     </span>
                   </div>
                 </div>
@@ -619,8 +805,11 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                   <span className="text-[10px] text-emerald-400 font-bold font-mono">{formatCLP(order.price)}</span>
                 </div>
                 <div className="text-[11px] text-zinc-400">{order.serviceName}</div>
-                <div className="text-[10px] text-zinc-500">
-                  {order.completedAt ? formatTimeOnly(order.completedAt) : 'Hoy'} • Lavador: {order.washerName}
+                <div className="text-[10px] text-zinc-500 flex items-center justify-between">
+                  <span>{order.completedAt ? formatTimeOnly(order.completedAt) : 'Hoy'}</span>
+                  <span className="truncate">
+                    Responsable: <strong className="text-zinc-300">{order.washerName || defaultResponsibleWasherName}</strong>
+                  </span>
                 </div>
                 {renderInspectionButtonOrBadge(order)}
               </div>
@@ -825,20 +1014,45 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                 </select>
               </div>
 
-              {/* Assigned Washer */}
-              <div>
-                <label className="block text-zinc-300 font-medium mb-1">
-                  Lavador Asignado
-                </label>
+              {/* Assigned Washer / Responsable del Lavado */}
+              <div className="space-y-1.5 bg-zinc-900/90 border border-zinc-800 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-0.5">
+                  <label className="text-zinc-200 font-semibold flex items-center gap-1.5 text-xs">
+                    <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+                    Responsable / Lavador Asignado *
+                  </label>
+                  {currentUser?.role === 'admin' && (
+                    <span className="text-[10px] font-bold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800 flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3 text-amber-400" />
+                      Admin Responsable
+                    </span>
+                  )}
+                </div>
+
                 <select
                   value={washerName}
                   onChange={(e) => setWasherName(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-750 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-purple-500"
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-purple-500"
+                  required
                 >
-                  {washersList.map((w) => (
-                    <option key={w} value={w}>{w}</option>
+                  {registeredWashers.map((w) => (
+                    <option key={w.id} value={w.name}>
+                      {w.name} — {w.roleLabel}
+                    </option>
                   ))}
                 </select>
+
+                <p className="text-[11px] text-zinc-400 leading-snug pt-0.5">
+                  {currentUser?.role === 'admin' ? (
+                    <span className="text-amber-300/90 font-medium">
+                      🛡️ Al estar activo el perfil de <strong>Administrador</strong> ({currentUser.name}), queda automáticamente asignado como responsable del lavado.
+                    </span>
+                  ) : (
+                    <span>
+                      Seleccione al usuario o personal registrado en la app responsable del servicio (sin lavadores al azar).
+                    </span>
+                  )}
+                </p>
               </div>
 
               {/* Notes */}
