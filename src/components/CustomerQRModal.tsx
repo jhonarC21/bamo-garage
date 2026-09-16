@@ -17,6 +17,7 @@ import {
 import QRCode from 'qrcode';
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, formatCLP, formatDateTime } from '../utils/pricing';
+import { safeCopyText } from '../utils/safeBrowser';
 
 interface CustomerQRModalProps {
   isOpen: boolean;
@@ -94,9 +95,10 @@ export const CustomerQRModal: React.FC<CustomerQRModalProps> = ({
 
   if (!isOpen || spotNumber === null || !session || !pricing) return null;
 
-  const handleCopyLink = () => {
-    const link = `${window.location.origin}?ticket=${session.ticketNumber}&spot=${session.spotNumber}`;
-    navigator.clipboard.writeText(link);
+  const handleCopyLink = async () => {
+    const baseUrl = window.location.href.split('?')[0];
+    const link = `${baseUrl}?ticket=${session.ticketNumber}&spot=${session.spotNumber}`;
+    await safeCopyText(link);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };

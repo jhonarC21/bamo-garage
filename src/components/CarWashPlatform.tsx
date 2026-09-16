@@ -218,6 +218,7 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
 
   // Notifications
   const [actionNotification, setActionNotification] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // Kanban filters
   const pendingOrders = washOrders.filter((o) => o.status === 'pending');
@@ -926,6 +927,19 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
             </div>
 
             <form onSubmit={handleCreateOrder} className="p-5 space-y-3.5 text-xs">
+              {modalError && (
+                <div className="bg-rose-950/80 border border-rose-500/50 p-2.5 rounded-xl text-rose-300 text-xs font-semibold flex items-center justify-between gap-2">
+                  <span>{modalError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setModalError(null)}
+                    className="text-rose-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
               {/* Optional Link to active Parking Spot */}
               <div>
                 <label className="block text-zinc-300 font-medium mb-1">
@@ -1101,9 +1115,10 @@ export const CarWashPlatform: React.FC<CarWashPlatformProps> = ({
                     type="button"
                     onClick={() => {
                       if (!plate.trim()) {
-                        alert('Por favor ingrese primero la patente del vehículo.');
+                        setModalError('Por favor ingrese primero la patente del vehículo.');
                         return;
                       }
+                      setModalError(null);
                       setIsCreatingInspectionForNewOrder(true);
                     }}
                     className="w-full py-2 px-3 bg-zinc-900 hover:bg-cyan-950 border border-zinc-700 hover:border-cyan-600 rounded-lg text-cyan-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition"

@@ -30,6 +30,7 @@ import { AccessoryProduct, AccessoryCategory, AccessorySaleItem, PaymentMethod, 
 import { bluetoothScanner } from '../utils/bluetoothScanner';
 import { BluetoothScannerModal } from './BluetoothScannerModal';
 import confetti from 'canvas-confetti';
+import { safeConfirm, safeAlert } from '../utils/safeBrowser';
 
 interface CartItem extends AccessorySaleItem {
   stock: number;
@@ -185,7 +186,7 @@ export const AccessoriesShop: React.FC = () => {
   // Helper to process uploaded file (from device picker or camera) and compress via Canvas
   const processImageFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('Por favor selecciona un archivo de imagen válido (JPG, PNG, WEBP).');
+      safeAlert('Por favor selecciona un archivo de imagen válido (JPG, PNG, WEBP).');
       return;
     }
     const reader = new FileReader();
@@ -196,7 +197,7 @@ export const AccessoriesShop: React.FC = () => {
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        const maxDim = 600;
+        const maxDim = 450;
         if (width > maxDim || height > maxDim) {
           if (width > height) {
             height = Math.round((height * maxDim) / width);
@@ -211,7 +212,7 @@ export const AccessoriesShop: React.FC = () => {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
           setImage(compressedDataUrl);
         } else {
           setImage(rawDataUrl);
@@ -281,7 +282,7 @@ export const AccessoriesShop: React.FC = () => {
   };
 
   const handleDeleteProduct = (id: string, prodName: string) => {
-    if (window.confirm(`¿Seguro que deseas eliminar "${prodName}" del catálogo de ventas?`)) {
+    if (safeConfirm(`¿Seguro que deseas eliminar "${prodName}" del catálogo de ventas?`)) {
       deleteAccessoryProduct(id);
       setCart((prev) => prev.filter((item) => item.productId !== id));
     }

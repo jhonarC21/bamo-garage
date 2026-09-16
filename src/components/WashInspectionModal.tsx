@@ -172,7 +172,7 @@ export const WashInspectionModal: React.FC<WashInspectionModalProps> = ({
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const compressedBase64 = await compressImageFile(file, 1200, 1200, 0.75);
+        const compressedBase64 = await compressImageFile(file, 640, 640, 0.65);
 
         const newPhoto: IntakePhoto = {
           id: `photo_${Date.now()}_${i}_${Math.random().toString(36).substr(2, 4)}`,
@@ -200,7 +200,7 @@ export const WashInspectionModal: React.FC<WashInspectionModalProps> = ({
 
     setIsProcessingPhoto(true);
     try {
-      const compressedBase64 = await compressImageFile(file, 1000, 1000, 0.72);
+      const compressedBase64 = await compressImageFile(file, 640, 640, 0.65);
       setNewDamagePhotoUrl(compressedBase64);
 
       // Also add to global photos pool automatically for redundancy

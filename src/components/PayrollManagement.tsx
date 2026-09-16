@@ -17,10 +17,12 @@ import {
   Edit2,
   Trash2,
   HelpCircle,
+  AlertCircle,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime, AFP_RATES_CHILE } from '../utils/pricing';
 import { Employee, ContractType, AFPOption, HealthSystem, PayrollSettlement, PaymentMethod } from '../types';
+import { safeConfirm } from '../utils/safeBrowser';
 
 export const PayrollManagement: React.FC = () => {
   const {
@@ -65,6 +67,7 @@ export const PayrollManagement: React.FC = () => {
   // Printable slip view modal
   const [selectedSettlementToView, setSelectedSettlementToView] = useState<PayrollSettlement | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const openNewEmpModal = () => {
     setEditingEmployee(null);
@@ -157,10 +160,12 @@ export const PayrollManagement: React.FC = () => {
 
       setSelectedSettlementToView(generated);
       setSuccessMessage(`Liquidación de sueldo calculada y generada para ${generated.employeeName}`);
+      setErrorMessage(null);
       setActiveTab('settlements');
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Error al generar liquidación');
+      setErrorMessage(err.message || 'Error al generar liquidación');
+      setTimeout(() => setErrorMessage(null), 5000);
     }
   };
 
@@ -243,6 +248,13 @@ export const PayrollManagement: React.FC = () => {
         </div>
       )}
 
+      {errorMessage && (
+        <div className="bg-rose-950/70 border border-rose-500/50 p-4 rounded-xl text-rose-300 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-400" />
+          {errorMessage}
+        </div>
+      )}
+
       {/* TAB 1: Employees List */}
       {activeTab === 'employees' && (
         <div className="space-y-4">
@@ -305,7 +317,7 @@ export const PayrollManagement: React.FC = () => {
                     </button>
                     <button
                       onClick={() => {
-                        if (window.confirm(`¿Eliminar trabajador ${emp.name}?`)) {
+                        if (safeConfirm(`¿Eliminar trabajador ${emp.name}?`)) {
                           deleteEmployee(emp.id);
                         }
                       }}

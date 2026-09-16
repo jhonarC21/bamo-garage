@@ -24,6 +24,7 @@ import {
 import { useParking } from '../context/ParkingContext';
 import { formatCLP, formatDateTime } from '../utils/pricing';
 import { ContractType, MonthlyContract } from '../types';
+import { safeConfirm } from '../utils/safeBrowser';
 
 export const MonthlyContracts: React.FC = () => {
   const {
@@ -76,9 +77,15 @@ export const MonthlyContracts: React.FC = () => {
     }, 1800);
   };
 
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   const sendWhatsAppReminder = (contract: MonthlyContract) => {
     if (!contract.clientPhone) {
-      alert('Este contrato no tiene registrado un número de teléfono para WhatsApp.');
+      setActionFeedback({
+        type: 'error',
+        message: 'Este contrato no tiene registrado un número de teléfono para WhatsApp.',
+      });
+      setTimeout(() => setActionFeedback(null), 4000);
       return;
     }
     const cleanPhone = contract.clientPhone.replace(/[^0-9]/g, '');
@@ -89,17 +96,30 @@ export const MonthlyContracts: React.FC = () => {
       `Agradecemos coordinar la renovación del servicio en nuestra caseta central o vía transferencia. ¡Muchas gracias por su preferencia!`;
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneToUse}&text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, '_blank');
+    try {
+      const w = window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+      if (!w) {
+        const link = document.createElement('a');
+        link.href = whatsappUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    } catch {
+      // Fallback
+    }
   };
 
   const handleDeleteContract = (contract: MonthlyContract) => {
-    if (window.confirm(`¿Seguro que deseas ELIMINAR el contrato de arriendo N° ${contract.contractNumber} (${contract.clientName} - Patente ${contract.plate})? El puesto asociado quedará libre de inmediato.`)) {
+    if (safeConfirm(`¿Seguro que deseas ELIMINAR el contrato de arriendo N° ${contract.contractNumber} (${contract.clientName} - Patente ${contract.plate})? El puesto asociado quedará libre de inmediato.`)) {
       const res = deleteMonthlyContract(contract.id);
-      if (res.success) {
-        alert('Contrato de arriendo eliminado correctamente.');
-      } else {
-        alert(res.message);
-      }
+      setActionFeedback({
+        type: res.success ? 'success' : 'error',
+        message: res.success ? 'Contrato de arriendo eliminado correctamente.' : res.message,
+      });
+      setTimeout(() => setActionFeedback(null), 4500);
     }
   };
 
@@ -270,6 +290,24 @@ export const MonthlyContracts: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Action Feedback Banner */}
+      {actionFeedback && (
+        <div
+          className={`p-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 border animate-fadeIn ${
+            actionFeedback.type === 'success'
+              ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+              : 'bg-rose-950/60 border-rose-500/50 text-rose-300'
+          }`}
+        >
+          {actionFeedback.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+          ) : (
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+          )}
+          <span>{actionFeedback.message}</span>
+        </div>
+      )}
 
       {/* Pricing Cards Showcase (4 Plans) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 text-xs">

@@ -31,6 +31,7 @@ import {
 import { useParking } from '../context/ParkingContext';
 import { calculateParkingFee, formatCLP, formatDateTime, formatTimeOnly } from '../utils/pricing';
 import { AccessorySaleItem, WashService, ParkingSession, VEHICLE_TYPES, VehicleType } from '../types';
+import { safeCopyText } from '../utils/safeBrowser';
 
 interface LiveCustomerPortalProps {
   ticketNumber?: string | null;
@@ -183,11 +184,12 @@ export const LiveCustomerPortal: React.FC<LiveCustomerPortalProps> = ({
     setActiveTab('stay');
   };
 
-  const handleCopyPortalLink = () => {
+  const handleCopyPortalLink = async () => {
+    const baseUrl = window.location.href.split('?')[0];
     const url = session
-      ? `${window.location.origin}${window.location.pathname}?plate=${session.plate}`
-      : `${window.location.origin}${window.location.pathname}?portal=customer`;
-    navigator.clipboard.writeText(url);
+      ? `${baseUrl}?plate=${session.plate}`
+      : `${baseUrl}?portal=customer`;
+    await safeCopyText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
   };

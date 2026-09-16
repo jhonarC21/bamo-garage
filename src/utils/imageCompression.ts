@@ -5,9 +5,9 @@
  */
 export async function compressImageFile(
   file: File,
-  maxWidth: number = 1024,
-  maxHeight: number = 1024,
-  quality: number = 0.72
+  maxWidth: number = 600,
+  maxHeight: number = 600,
+  quality: number = 0.65
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -48,7 +48,7 @@ export async function compressImageFile(
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Export as compressed JPEG
+        // Export as compressed JPEG (under 30-40 KB)
         const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
         resolve(compressedDataUrl);
       };

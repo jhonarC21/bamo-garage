@@ -40,20 +40,5 @@ try {
 export const db = firestoreInstance;
 export const auth = getAuth(app);
 
-// Validador de conexión según la especificación de integración Firebase
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase backend connection check: client operating in offline cache mode.');
-    }
-  }
-}
-
-if (typeof window !== 'undefined') {
-  testConnection();
-}
-
 export default app;
 

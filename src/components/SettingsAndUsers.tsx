@@ -38,6 +38,7 @@ import {
 import { useParking } from '../context/ParkingContext';
 import { formatCLP } from '../utils/pricing';
 import { AppUser, UserRole, WashService, AccessoryProduct, AccessoryCategory, ACCESSORY_CATEGORIES, VehicleType, VEHICLE_TYPES } from '../types';
+import { safeConfirm } from '../utils/safeBrowser';
 
 export const SettingsAndUsers: React.FC = () => {
   const {
@@ -580,7 +581,7 @@ export const SettingsAndUsers: React.FC = () => {
                       {users.length > 1 && (
                         <button
                           onClick={() => {
-                            if (window.confirm(`¿Eliminar usuario ${u.name}?`)) {
+                            if (safeConfirm(`¿Eliminar usuario ${u.name}?`)) {
                               deleteUser(u.id);
                             }
                           }}
@@ -880,7 +881,7 @@ export const SettingsAndUsers: React.FC = () => {
 
                       <button
                         onClick={() => {
-                          if (window.confirm(`¿Eliminar servicio "${w.name}"?`)) {
+                          if (safeConfirm(`¿Eliminar servicio "${w.name}"?`)) {
                             deleteWashService(w.id);
                           }
                         }}
@@ -966,7 +967,7 @@ export const SettingsAndUsers: React.FC = () => {
 
                   <button
                     onClick={() => {
-                      if (window.confirm(`¿Eliminar producto "${p.name}"?`)) {
+                      if (safeConfirm(`¿Eliminar producto "${p.name}"?`)) {
                         deleteAccessoryProduct(p.id);
                       }
                     }}
@@ -1716,8 +1717,8 @@ export const SettingsAndUsers: React.FC = () => {
                 <span className="font-mono font-semibold text-amber-300">Bamo Garage SpA (78.084.649-6)</span>
               </div>
               <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
-                <span className="text-zinc-500 block mb-1">Documento Central:</span>
-                <span className="font-mono text-zinc-300 text-[11px]">garage_state/bamo_garage_main</span>
+                <span className="text-zinc-500 block mb-1">Estructura en la Nube:</span>
+                <span className="font-mono text-emerald-400 text-[11px]">garage_state (Particionado: main, vehicles, catalog, history)</span>
               </div>
             </div>
           </div>
@@ -1778,7 +1779,7 @@ export const SettingsAndUsers: React.FC = () => {
                       <button
                         onClick={() => {
                           if (
-                            window.confirm(
+                            safeConfirm(
                               `¿Deseas restaurar la información al estado del ${date.toLocaleDateString('es-CL')} ${date.toLocaleTimeString('es-CL')}?`
                             )
                           ) {
@@ -1879,7 +1880,10 @@ export const SettingsAndUsers: React.FC = () => {
                           text: 'Se han restablecido los valores iniciales de fábrica de Bamo Garage SpA.',
                         });
                       } else {
-                        alert('Clave PIN incorrecta para confirmar restablecimiento.');
+                        setBackupStatusMsg({
+                          type: 'error',
+                          text: 'Clave PIN incorrecta para confirmar restablecimiento.',
+                        });
                       }
                     }}
                     className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition"

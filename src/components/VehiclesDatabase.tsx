@@ -26,8 +26,10 @@ import {
   Layers,
   Lock,
   Key,
+  AlertCircle,
 } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
+import { safeConfirm } from '../utils/safeBrowser';
 import { formatCLP, formatDateTime } from '../utils/pricing';
 import { Vehicle, VehicleType, VEHICLE_TYPES, CustomerBehaviorRating, PaymentMethod } from '../types';
 
@@ -84,7 +86,7 @@ export const VehiclesDatabase: React.FC = () => {
   const [vipAccumulatedBalance, setVipAccumulatedBalance] = useState<string>('0');
   const [behaviorRating, setBehaviorRating] = useState<CustomerBehaviorRating>('bueno');
   const [behaviorNotes, setBehaviorNotes] = useState('');
-  const [actionToast, setActionToast] = useState<{ type: 'success' | 'warning' | 'info'; title: string; message: string } | null>(null);
+  const [actionToast, setActionToast] = useState<{ type: 'success' | 'warning' | 'info' | 'error'; title: string; message: string } | null>(null);
 
   // Duplicate vehicle detection in real-time
   const cleanInputPlate = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -179,14 +181,24 @@ export const VehiclesDatabase: React.FC = () => {
     if (!payingVehicle) return;
     const amt = parseFloat(paymentAmount) || 0;
     if (amt <= 0) {
-      alert('Ingresa un monto válido para abonar.');
+      setActionToast({
+        type: 'error',
+        title: 'Monto inválido',
+        message: 'Ingresa un monto válido para abonar.',
+      });
+      setTimeout(() => setActionToast(null), 4000);
       return;
     }
 
     payVIPAccumulatedBalance(payingVehicle.plate, amt, paymentMethod);
     setIsPaymentModalOpen(false);
+    setActionToast({
+      type: 'success',
+      title: 'Abono Registrado',
+      message: `Abono de ${formatCLP(amt)} registrado exitosamente para el cliente VIP (${payingVehicle.plate}).`,
+    });
+    setTimeout(() => setActionToast(null), 5000);
     setPayingVehicle(null);
-    alert(`Abono de ${formatCLP(amt)} registrado exitosamente para el cliente VIP (${payingVehicle.plate}).`);
   };
 
   const calculateVehicleChanges = (oldV: Vehicle, newV: Vehicle) => {
@@ -317,7 +329,7 @@ export const VehiclesDatabase: React.FC = () => {
     }
 
     if (
-      window.confirm(
+      safeConfirm(
         `¿Estás seguro de eliminar permanentemente el vehículo patente ${v.plate} (${v.brand} ${v.model})? Esta acción quedará registrada en el panel de auditoría.`
       )
     ) {
@@ -330,7 +342,12 @@ export const VehiclesDatabase: React.FC = () => {
         });
         setTimeout(() => setActionToast(null), 5000);
       } else {
-        alert(res.message);
+        setActionToast({
+          type: 'error',
+          title: 'Error al eliminar',
+          message: res.message,
+        });
+        setTimeout(() => setActionToast(null), 5000);
       }
     }
   };
@@ -358,7 +375,12 @@ export const VehiclesDatabase: React.FC = () => {
         });
         setTimeout(() => setActionToast(null), 5000);
       } else {
-        alert(res.message);
+        setActionToast({
+          type: 'error',
+          title: 'Error al eliminar',
+          message: res.message,
+        });
+        setTimeout(() => setActionToast(null), 5000);
       }
     } else if (pendingAdminAction.type === 'edit' && pendingAdminAction.vehicleToSave) {
       executeSaveWithAudit(
@@ -454,7 +476,9 @@ export const VehiclesDatabase: React.FC = () => {
       {actionToast && (
         <div
           className={`p-4 rounded-xl border flex items-start justify-between gap-3 shadow-2xl animate-fadeIn ${
-            actionToast.type === 'warning'
+            actionToast.type === 'error'
+              ? 'bg-rose-950/90 border-rose-500/80 text-rose-200'
+              : actionToast.type === 'warning'
               ? 'bg-amber-950/90 border-amber-500/80 text-amber-200'
               : actionToast.type === 'info'
               ? 'bg-cyan-950/90 border-cyan-500/80 text-cyan-200'
@@ -462,7 +486,9 @@ export const VehiclesDatabase: React.FC = () => {
           }`}
         >
           <div className="flex items-start gap-2.5">
-            {actionToast.type === 'warning' ? (
+            {actionToast.type === 'error' ? (
+              <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+            ) : actionToast.type === 'warning' ? (
               <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
             ) : actionToast.type === 'info' ? (
               <CheckCircle2 className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />

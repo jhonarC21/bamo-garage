@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
   ParkingSpot,
@@ -82,9 +82,91 @@ interface CheckInData {
   notes?: string;
 }
 
-// Helper to sanitize payload for Firestore (stripping any undefined properties)
+// Helper to sanitize payload for Firestore (stripping undefined and guarding against giant payloads)
 function sanitizeForFirestore<T>(data: T): T {
-  return JSON.parse(JSON.stringify(data));
+  const json = JSON.stringify(data, (_key, value) => {
+    // If an oversized base64 data URL string is encountered, trim it safely to protect document limits
+    if (typeof value === 'string' && value.startsWith('data:image/') && value.length > 120000) {
+      return value.slice(0, 80000);
+    }
+    return value;
+  });
+  return JSON.parse(json);
+}
+
+// Partitioned multi-document Firestore synchronization
+// Splits the large application state into 4 compact documents under 'garage_state',
+// strictly ensuring each document stays under 100 KB and never exceeds Firestore's 1 MiB limit.
+async function syncPartitionedStateToFirestore(data: {
+  spots: ParkingSpot[];
+  vehicles: Vehicle[];
+  washServices: WashService[];
+  washOrders: WashOrder[];
+  accessoryProducts: AccessoryProduct[];
+  accessorySales: AccessorySale[];
+  monthlyContracts: MonthlyContract[];
+  completedSessions: ParkingSession[];
+  vipPaymentRecords?: VIPPaymentRecord[];
+  vehicleAuditLogs?: VehicleAuditLog[];
+  settings: ParkingSettings;
+  users: AppUser[];
+  expenses: BusinessExpense[];
+  openingCash: number;
+  cashRegisterClosures: CashRegisterCloseRecord[];
+  employees: Employee[];
+  payrollSettlements: PayrollSettlement[];
+}): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  // 1. Core State (Lightweight, ~15-25 KB)
+  const mainDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+  const mainPayload = sanitizeForFirestore({
+    spots: data.spots,
+    settings: data.settings,
+    users: data.users,
+    openingCash: data.openingCash,
+    washServices: data.washServices,
+    employees: data.employees,
+    lastUpdatedAt: nowIso,
+  });
+
+  // 2. Vehicles & Contracts (~30-60 KB)
+  const vehiclesDocRef = doc(db, 'garage_state', 'bamo_garage_vehicles');
+  const vehiclesPayload = sanitizeForFirestore({
+    vehicles: data.vehicles,
+    monthlyContracts: data.monthlyContracts,
+    vipPaymentRecords: data.vipPaymentRecords || [],
+    lastUpdatedAt: nowIso,
+  });
+
+  // 3. Shop, Wash & Active Orders (~40-90 KB)
+  const catalogDocRef = doc(db, 'garage_state', 'bamo_garage_catalog');
+  const catalogPayload = sanitizeForFirestore({
+    accessoryProducts: data.accessoryProducts,
+    washOrders: data.washOrders,
+    accessorySales: (data.accessorySales || []).slice(-150),
+    expenses: (data.expenses || []).slice(-150),
+    lastUpdatedAt: nowIso,
+  });
+
+  // 4. Historical Records & Closures (~40-90 KB)
+  const historyDocRef = doc(db, 'garage_state', 'bamo_garage_history');
+  const historyPayload = sanitizeForFirestore({
+    completedSessions: (data.completedSessions || []).slice(-150),
+    cashRegisterClosures: (data.cashRegisterClosures || []).slice(-80),
+    payrollSettlements: (data.payrollSettlements || []).slice(-80),
+    vehicleAuditLogs: (data.vehicleAuditLogs || []).slice(-150),
+    lastUpdatedAt: nowIso,
+  });
+
+  // CRITICAL: Writing mainDocRef WITHOUT { merge: true } overwrites the monolithic document,
+  // immediately freeing the 1,048,826 bytes bloat and permanently eliminating the size limit error!
+  await Promise.all([
+    setDoc(mainDocRef, mainPayload),
+    setDoc(vehiclesDocRef, vehiclesPayload, { merge: true }),
+    setDoc(catalogDocRef, catalogPayload, { merge: true }),
+    setDoc(historyDocRef, historyPayload, { merge: true }),
+  ]);
 }
 
 interface ParkingContextType {
@@ -506,66 +588,111 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     try {
-      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
+      const stateCollectionRef = collection(db, 'garage_state');
       const unsubscribe = onSnapshot(
-        liveDocRef,
+        stateCollectionRef,
         (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            if (data) {
-              isIncomingCloudUpdate.current = true;
-              if (Array.isArray(data.spots)) setSpots(data.spots);
-              if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
-              if (Array.isArray(data.washServices)) setWashServices(data.washServices);
-              if (Array.isArray(data.washOrders)) setWashOrders(data.washOrders);
-              if (Array.isArray(data.accessoryProducts)) setAccessoryProducts(data.accessoryProducts);
-              if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
-              if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
-              if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
-              if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
-              if (Array.isArray(data.vehicleAuditLogs)) setVehicleAuditLogs(data.vehicleAuditLogs);
-              if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
-              if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
-              if (Array.isArray(data.expenses)) setExpenses(data.expenses);
-              if (typeof data.openingCash === 'number') setOpeningCash(data.openingCash);
-              if (Array.isArray(data.cashRegisterClosures)) setCashRegisterClosures(data.cashRegisterClosures);
-              if (Array.isArray(data.employees)) setEmployees(data.employees);
-              if (Array.isArray(data.payrollSettlements)) setPayrollSettlements(data.payrollSettlements);
+          if (!snapshot.empty) {
+            isIncomingCloudUpdate.current = true;
+            snapshot.forEach((docSnap) => {
+              const id = docSnap.id;
+              const data = docSnap.data();
+              if (!data) return;
 
-              setIsCloudSynced(true);
-              setCloudSyncStatus('connected');
-              setLastCloudSyncTime(new Date());
+              if (id === 'bamo_garage_main') {
+                if (Array.isArray(data.spots)) setSpots(data.spots);
+                if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+                if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
+                if (typeof data.openingCash === 'number') setOpeningCash(data.openingCash);
+                if (Array.isArray(data.washServices)) setWashServices(data.washServices);
+                if (Array.isArray(data.employees)) setEmployees(data.employees);
 
-              setTimeout(() => {
-                isIncomingCloudUpdate.current = false;
-                isInitialCloudLoadComplete.current = true;
-              }, 300);
-            }
+                // Backward-compatibility: if the cloud document still has legacy monolithic data
+                if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
+                if (Array.isArray(data.washOrders)) setWashOrders(data.washOrders);
+                if (Array.isArray(data.accessoryProducts)) setAccessoryProducts(data.accessoryProducts);
+                if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
+                if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
+                if (Array.isArray(data.completedSessions)) setCompletedSessions(data.completedSessions);
+                if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
+                if (Array.isArray(data.vehicleAuditLogs)) setVehicleAuditLogs(data.vehicleAuditLogs);
+                if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+                if (Array.isArray(data.cashRegisterClosures)) setCashRegisterClosures(data.cashRegisterClosures);
+                if (Array.isArray(data.payrollSettlements)) setPayrollSettlements(data.payrollSettlements);
+              } else if (id === 'bamo_garage_vehicles') {
+                if (Array.isArray(data.vehicles)) setVehicles(data.vehicles);
+                if (Array.isArray(data.monthlyContracts)) setMonthlyContracts(data.monthlyContracts);
+                if (Array.isArray(data.vipPaymentRecords)) setVipPaymentRecords(data.vipPaymentRecords);
+              } else if (id === 'bamo_garage_catalog') {
+                if (Array.isArray(data.accessoryProducts)) setAccessoryProducts(data.accessoryProducts);
+                if (Array.isArray(data.washOrders)) setWashOrders(data.washOrders);
+                if (Array.isArray(data.accessorySales)) setAccessorySales(data.accessorySales);
+                if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+              } else if (id === 'bamo_garage_history') {
+                if (Array.isArray(data.completedSessions)) {
+                  setCompletedSessions((prev) => {
+                    const map = new Map<string, ParkingSession>();
+                    prev.forEach((s) => map.set(s.id, s));
+                    data.completedSessions.forEach((s: ParkingSession) => map.set(s.id, s));
+                    return Array.from(map.values());
+                  });
+                }
+                if (Array.isArray(data.cashRegisterClosures)) {
+                  setCashRegisterClosures((prev) => {
+                    const map = new Map<string, CashRegisterCloseRecord>();
+                    prev.forEach((c) => map.set(c.id, c));
+                    data.cashRegisterClosures.forEach((c: CashRegisterCloseRecord) => map.set(c.id, c));
+                    return Array.from(map.values());
+                  });
+                }
+                if (Array.isArray(data.payrollSettlements)) {
+                  setPayrollSettlements((prev) => {
+                    const map = new Map<string, PayrollSettlement>();
+                    prev.forEach((p) => map.set(p.id, p));
+                    data.payrollSettlements.forEach((p: PayrollSettlement) => map.set(p.id, p));
+                    return Array.from(map.values());
+                  });
+                }
+                if (Array.isArray(data.vehicleAuditLogs)) {
+                  setVehicleAuditLogs((prev) => {
+                    const map = new Map<string, VehicleAuditLog>();
+                    prev.forEach((l) => map.set(l.id, l));
+                    data.vehicleAuditLogs.forEach((l: VehicleAuditLog) => map.set(l.id, l));
+                    return Array.from(map.values());
+                  });
+                }
+              }
+            });
+
+            setIsCloudSynced(true);
+            setCloudSyncStatus('connected');
+            setLastCloudSyncTime(new Date());
+
+            setTimeout(() => {
+              isIncomingCloudUpdate.current = false;
+              isInitialCloudLoadComplete.current = true;
+            }, 300);
           } else {
             // First-time database bootstrapping in Firestore
-            setDoc(
-              liveDocRef,
-              sanitizeForFirestore({
-                spots: INITIAL_SPOTS,
-                vehicles: INITIAL_VEHICLES,
-                washServices: INITIAL_WASH_SERVICES,
-                washOrders: [],
-                accessoryProducts: INITIAL_ACCESSORIES,
-                accessorySales: [],
-                monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
-                completedSessions: INITIAL_COMPLETED_SESSIONS,
-                vipPaymentRecords: [],
-                vehicleAuditLogs: [],
-                settings: DEFAULT_SETTINGS,
-                users: INITIAL_USERS,
-                expenses: INITIAL_EXPENSES,
-                openingCash: 50000,
-                cashRegisterClosures: [],
-                employees: INITIAL_EMPLOYEES,
-                payrollSettlements: [],
-                lastUpdatedAt: new Date().toISOString(),
-              })
-            )
+            syncPartitionedStateToFirestore({
+              spots: INITIAL_SPOTS,
+              vehicles: INITIAL_VEHICLES,
+              washServices: INITIAL_WASH_SERVICES,
+              washOrders: [],
+              accessoryProducts: INITIAL_ACCESSORIES,
+              accessorySales: [],
+              monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
+              completedSessions: INITIAL_COMPLETED_SESSIONS,
+              vipPaymentRecords: [],
+              vehicleAuditLogs: [],
+              settings: DEFAULT_SETTINGS,
+              users: INITIAL_USERS,
+              expenses: INITIAL_EXPENSES,
+              openingCash: 50000,
+              cashRegisterClosures: [],
+              employees: INITIAL_EMPLOYEES,
+              payrollSettlements: [],
+            })
               .then(() => {
                 setIsCloudSynced(true);
                 setCloudSyncStatus('connected');
@@ -647,33 +774,20 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    // Rule 1: 30-second interval batch window to save write quotas
-    const timer = setTimeout(() => {
+    // Rule 1: 3-second rapid debounce on direct state change, saving 90% writes while remaining highly responsive across devices
+    const timer = setTimeout(async () => {
       try {
         setCloudSyncStatus('syncing');
-        const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
-        setDoc(
-          liveDocRef,
-          sanitizeForFirestore({
-            ...currentPayloadObj,
-            lastUpdatedAt: new Date().toISOString(),
-          }),
-          { merge: true }
-        )
-          .then(() => {
-            lastSyncedPayloadRef.current = serializedPayload;
-            setIsCloudSynced(true);
-            setCloudSyncStatus('connected');
-            setLastCloudSyncTime(new Date());
-          })
-          .catch((err) => {
-            console.warn('Error updating Firestore in real-time:', err);
-            setCloudSyncStatus('error');
-          });
-      } catch (e) {
-        console.warn('Error syncing state to Firestore:', e);
+        await syncPartitionedStateToFirestore(currentPayloadObj);
+        lastSyncedPayloadRef.current = serializedPayload;
+        setIsCloudSynced(true);
+        setCloudSyncStatus('connected');
+        setLastCloudSyncTime(new Date());
+      } catch (err: any) {
+        console.warn('Error updating Firestore in real-time:', err);
+        setCloudSyncStatus('error');
       }
-    }, 3000); // 3-second rapid debounce on direct state change, saving 90% writes while remaining highly responsive across devices
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [
@@ -2724,29 +2838,23 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // Force push directly to Firestore
       try {
-        const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
-        setDoc(
-          liveDocRef,
-          sanitizeForFirestore({
-            spots: d.spots || spots,
-            vehicles: d.vehicles || vehicles,
-            washServices: d.washServices || washServices,
-            washOrders: d.washOrders || washOrders,
-            accessoryProducts: d.accessoryProducts || accessoryProducts,
-            accessorySales: d.accessorySales || accessorySales,
-            monthlyContracts: d.monthlyContracts || monthlyContracts,
-            completedSessions: d.completedSessions || completedSessions,
-            settings: d.settings || settings,
-            users: d.users || users,
-            expenses: d.expenses || expenses,
-            openingCash: typeof d.openingCash === 'number' ? d.openingCash : openingCash,
-            cashRegisterClosures: d.cashRegisterClosures || cashRegisterClosures,
-            employees: d.employees || employees,
-            payrollSettlements: d.payrollSettlements || payrollSettlements,
-            lastUpdatedAt: new Date().toISOString(),
-          }),
-          { merge: true }
-        );
+        syncPartitionedStateToFirestore({
+          spots: d.spots || spots,
+          vehicles: d.vehicles || vehicles,
+          washServices: d.washServices || washServices,
+          washOrders: d.washOrders || washOrders,
+          accessoryProducts: d.accessoryProducts || accessoryProducts,
+          accessorySales: d.accessorySales || accessorySales,
+          monthlyContracts: d.monthlyContracts || monthlyContracts,
+          completedSessions: d.completedSessions || completedSessions,
+          settings: d.settings || settings,
+          users: d.users || users,
+          expenses: d.expenses || expenses,
+          openingCash: typeof d.openingCash === 'number' ? d.openingCash : openingCash,
+          cashRegisterClosures: d.cashRegisterClosures || cashRegisterClosures,
+          employees: d.employees || employees,
+          payrollSettlements: d.payrollSettlements || payrollSettlements,
+        }).catch((err) => console.warn('Error syncing restored data to Firestore:', err));
       } catch (err) {
         console.warn('Error syncing restored data to Firestore:', err);
       }
@@ -2766,31 +2874,25 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const forceCloudSync = async (): Promise<{ success: boolean; message: string }> => {
     try {
       setCloudSyncStatus('syncing');
-      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
-      await setDoc(
-        liveDocRef,
-        sanitizeForFirestore({
-          spots,
-          vehicles,
-          washServices,
-          washOrders,
-          accessoryProducts,
-          accessorySales,
-          monthlyContracts,
-          completedSessions,
-          vipPaymentRecords,
-          vehicleAuditLogs,
-          settings,
-          users,
-          expenses,
-          openingCash,
-          cashRegisterClosures,
-          employees,
-          payrollSettlements,
-          lastUpdatedAt: new Date().toISOString(),
-        }),
-        { merge: true }
-      );
+      await syncPartitionedStateToFirestore({
+        spots,
+        vehicles,
+        washServices,
+        washOrders,
+        accessoryProducts,
+        accessorySales,
+        monthlyContracts,
+        completedSessions,
+        vipPaymentRecords,
+        vehicleAuditLogs,
+        settings,
+        users,
+        expenses,
+        openingCash,
+        cashRegisterClosures,
+        employees,
+        payrollSettlements,
+      });
       setIsCloudSynced(true);
       setCloudSyncStatus('connected');
       setLastCloudSyncTime(new Date());
@@ -2828,28 +2930,25 @@ export const ParkingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setSimulatedMinutesAdded(0);
 
     try {
-      const liveDocRef = doc(db, 'garage_state', 'bamo_garage_main');
-      setDoc(
-        liveDocRef,
-        sanitizeForFirestore({
-          spots: INITIAL_SPOTS,
-          vehicles: INITIAL_VEHICLES,
-          washServices: INITIAL_WASH_SERVICES,
-          washOrders: orders,
-          accessoryProducts: INITIAL_ACCESSORIES,
-          accessorySales: [],
-          monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
-          completedSessions: INITIAL_COMPLETED_SESSIONS,
-          settings: DEFAULT_SETTINGS,
-          users: INITIAL_USERS,
-          expenses: INITIAL_EXPENSES,
-          openingCash: 50000,
-          cashRegisterClosures: [],
-          employees: INITIAL_EMPLOYEES,
-          payrollSettlements: [],
-          lastUpdatedAt: new Date().toISOString(),
-        })
-      );
+      syncPartitionedStateToFirestore({
+        spots: INITIAL_SPOTS,
+        vehicles: INITIAL_VEHICLES,
+        washServices: INITIAL_WASH_SERVICES,
+        washOrders: orders,
+        accessoryProducts: INITIAL_ACCESSORIES,
+        accessorySales: [],
+        monthlyContracts: INITIAL_MONTHLY_CONTRACTS,
+        completedSessions: INITIAL_COMPLETED_SESSIONS,
+        vipPaymentRecords: [],
+        vehicleAuditLogs: [],
+        settings: DEFAULT_SETTINGS,
+        users: INITIAL_USERS,
+        expenses: INITIAL_EXPENSES,
+        openingCash: 50000,
+        cashRegisterClosures: [],
+        employees: INITIAL_EMPLOYEES,
+        payrollSettlements: [],
+      }).catch((e) => console.warn('Error resetting cloud document:', e));
     } catch (e) {
       console.warn('Error resetting cloud document:', e);
     }

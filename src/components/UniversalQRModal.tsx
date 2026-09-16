@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useParking } from '../context/ParkingContext';
+import { safeCopyText } from '../utils/safeBrowser';
 
 interface UniversalQRModalProps {
   isOpen: boolean;
@@ -60,8 +61,8 @@ export const UniversalQRModal: React.FC<UniversalQRModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(portalUrl);
+  const handleCopyLink = async () => {
+    await safeCopyText(portalUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -70,13 +71,14 @@ export const UniversalQRModal: React.FC<UniversalQRModalProps> = ({
     const printContent = printRef.current;
     if (!printContent) return;
 
-    const win = window.open('', '_blank');
-    if (!win) {
-      alert('Por favor permite las ventanas emergentes para imprimir el afiche.');
-      return;
-    }
+    try {
+      const win = window.open('', '_blank');
+      if (!win) {
+        window.print();
+        return;
+      }
 
-    win.document.write(`
+      win.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
@@ -232,7 +234,10 @@ export const UniversalQRModal: React.FC<UniversalQRModalProps> = ({
         </body>
       </html>
     `);
-    win.document.close();
+      win.document.close();
+    } catch {
+      window.print();
+    }
   };
 
   const occupiedCount = spots.filter((s) => s.status === 'occupied').length;
